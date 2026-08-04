@@ -15,6 +15,18 @@ class CommitInfo:
     subject: str
 
 
+@dataclass(frozen=True, slots=True)
+class CommitHistory:
+    all_commits: tuple[CommitInfo, ...]
+    excel_commits: tuple[CommitInfo, ...]
+    scanned_commit_count: int
+    scan_limit: int
+    source: Literal["git", "cache"] = "git"
+
+    def visible_commits(self, *, only_excel: bool) -> tuple[CommitInfo, ...]:
+        return self.excel_commits if only_excel else self.all_commits
+
+
 FileChangeType = Literal["added", "modified", "deleted", "renamed"]
 CellChangeType = Literal["added", "modified", "deleted"]
 SheetChangeType = Literal["added", "deleted"]

@@ -5,7 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from string import hexdigits
 
-from excel_git_viewer.models import ChangedFile, CommitInfo, FileChangeType
+from excel_git_viewer.history_cache import HistoryCache
+from excel_git_viewer.models import ChangedFile, CommitHistory, CommitInfo, FileChangeType
 
 
 class GitRepositoryError(RuntimeError):
@@ -15,30 +16,61 @@ class GitRepositoryError(RuntimeError):
 class GitRepository:
     """Read-only access to the Git information needed by the viewer."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, history_cache: HistoryCache | None = None) -> None:
         requested_path = path.expanduser().resolve()
         root = self._run_at(requested_path, "rev-parse", "--show-toplevel").decode().strip()
         self.root = Path(root)
         branch = self._try_run("symbolic-ref", "--quiet", "--short", "HEAD")
         self.current_branch: str | None = branch.decode().strip() if branch is not None else None
+        self._history_cache = history_cache
 
-    def list_commits(self, limit: int = 200, *, only_excel: bool = True) -> list[CommitInfo]:
-        if limit < 1:
-            raise ValueError("limit must be at least 1")
-        if self._try_run("rev-parse", "--verify", "HEAD") is None:
-            return []
+    def load_recent_history(
+        self,
+        scan_limit: int = 1000,
+        display_limit: int = 200,
+        *,
+        force_refresh: bool = False,
+    ) -> CommitHistory:
+        if scan_limit < 1:
+            raise ValueError("scan_limit must be at least 1")
+        if display_limit < 1:
+            raise ValueError("display_limit must be at least 1")
+        head_output = self._try_run("rev-parse", "--verify", "HEAD")
+        if head_output is None:
+            return CommitHistory((), (), 0, scan_limit)
+        head_id = head_output.decode().strip()
+        if self._history_cache is not None and not force_refresh:
+            cached = self._history_cache.load(
+                self.root,
+                head_id,
+                scan_limit,
+                display_limit,
+            )
+            if cached is not None:
+                return cached
 
-        args = [
+        output = self._run(
             "log",
             "--no-merges",
-            f"-n{limit}",
-            "--pretty=format:%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%x1e",
-        ]
-        if only_excel:
-            args.extend(["--", ":(icase,glob)**/*.xlsx"])
-
-        output = self._run(*args)
-        return self._parse_commits(output)
+            f"-n{scan_limit}",
+            "--pretty=format:%x00%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00",
+            "--name-status",
+            "-z",
+        )
+        records = self._parse_history(output)
+        all_commits = tuple(record[0] for record in records[:display_limit])
+        excel_commits = tuple(
+            commit for commit, paths in records if any(self._is_excel_path(path) for path in paths)
+        )[:display_limit]
+        history = CommitHistory(
+            all_commits=all_commits,
+            excel_commits=excel_commits,
+            scanned_commit_count=len(records),
+            scan_limit=scan_limit,
+        )
+        if self._history_cache is not None:
+            self._history_cache.save(self.root, head_id, display_limit, history)
+        return history
 
     def list_changed_excel_files(self, commit_id: str) -> list[ChangedFile]:
         self._validate_object_id(commit_id)
@@ -102,31 +134,49 @@ class GitRepository:
             raise ValueError("object ID must be a full hexadecimal Git object ID")
 
     @staticmethod
-    def _parse_commits(output: bytes) -> list[CommitInfo]:
-        commits: list[CommitInfo] = []
-        for raw_record in output.split(b"\x1e"):
-            record = raw_record.strip(b"\r\n")
-            if not record:
-                continue
-            fields = record.split(b"\x00")
-            if fields and fields[-1] == b"":
-                fields.pop()
-            if len(fields) != 6:
-                raise GitRepositoryError("Git returned an unexpected commit record")
+    def _parse_history(output: bytes) -> list[tuple[CommitInfo, tuple[str, ...]]]:
+        records: list[tuple[CommitInfo, tuple[str, ...]]] = []
+        fields = output.split(b"\x00")
+        index = 0
+        while index < len(fields):
+            while index < len(fields) and fields[index] == b"":
+                index += 1
+            if index >= len(fields):
+                break
+            if index + 5 >= len(fields):
+                raise GitRepositoryError("Git returned an unexpected history record")
             commit_id, parents, name, email, authored_at, subject = (
-                field.decode("utf-8", errors="replace") for field in fields
+                field.decode("utf-8", errors="replace") for field in fields[index : index + 6]
             )
-            commits.append(
-                CommitInfo(
-                    commit_id=commit_id,
-                    parent_ids=tuple(parents.split()),
-                    author_name=name,
-                    author_email=email,
-                    authored_at=datetime.fromisoformat(authored_at),
-                    subject=subject,
+            index += 6
+            paths: list[str] = []
+            while index < len(fields) and fields[index] != b"":
+                raw_status = fields[index]
+                if raw_status.startswith(b"\n"):
+                    raw_status = raw_status[1:]
+                status = raw_status.decode("ascii", errors="replace")
+                if not status or status[0] not in {"A", "B", "C", "D", "M", "R", "T", "U", "X"}:
+                    raise GitRepositoryError("Git returned an unexpected history change")
+                path_count = 2 if status[0] in {"C", "R"} else 1
+                if index + path_count >= len(fields):
+                    raise GitRepositoryError("Git returned an incomplete history change")
+                for offset in range(1, path_count + 1):
+                    paths.append(fields[index + offset].decode("utf-8", errors="replace"))
+                index += path_count + 1
+            records.append(
+                (
+                    CommitInfo(
+                        commit_id=commit_id,
+                        parent_ids=tuple(parents.split()),
+                        author_name=name,
+                        author_email=email,
+                        authored_at=datetime.fromisoformat(authored_at),
+                        subject=subject,
+                    ),
+                    tuple(paths),
                 )
             )
-        return commits
+        return records
 
     @staticmethod
     def _parse_changed_files(

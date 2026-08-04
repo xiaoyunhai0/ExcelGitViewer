@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
 from excel_git_viewer.git_repository import GitRepository
+from excel_git_viewer.history_cache import HistoryCache
 
 
 def run_git(repo: Path, *args: str) -> str:
@@ -25,7 +27,7 @@ def commit_file(repo: Path, relative_path: str, content: bytes, subject: str) ->
     return run_git(repo, "rev-parse", "HEAD")
 
 
-def test_commit_list_defaults_to_commits_that_changed_xlsx(tmp_path: Path) -> None:
+def test_recent_history_identifies_commits_that_changed_xlsx(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     run_git(repo, "init", "-b", "main")
@@ -36,7 +38,7 @@ def test_commit_list_defaults_to_commits_that_changed_xlsx(tmp_path: Path) -> No
     excel_commit = commit_file(repo, "Data/Balancing.XLSX", b"xlsx bytes", "update balance")
 
     repository = GitRepository(repo)
-    commits = repository.list_commits()
+    commits = repository.load_recent_history().excel_commits
 
     assert repository.current_branch == "main"
     assert [commit.commit_id for commit in commits] == [excel_commit]
@@ -70,7 +72,7 @@ def test_empty_repository_has_a_branch_and_no_commits(tmp_path: Path) -> None:
     repository = GitRepository(repo)
 
     assert repository.current_branch == "main"
-    assert repository.list_commits() == []
+    assert repository.load_recent_history().all_commits == ()
 
 
 def test_renamed_xlsx_reads_old_and_new_paths(tmp_path: Path) -> None:
@@ -93,3 +95,107 @@ def test_renamed_xlsx_reads_old_and_new_paths(tmp_path: Path) -> None:
         "Data/new.xlsx",
     )
     assert repository.read_versions(change) == (b"same workbook", b"same workbook")
+
+
+def test_recent_history_builds_all_and_excel_views_from_one_bounded_window(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run_git(repo, "init", "-b", "main")
+    run_git(repo, "config", "user.name", "Test User")
+    run_git(repo, "config", "user.email", "test@example.com")
+    commit_file(repo, "Data/old.xlsx", b"old", "old excel change")
+    commit_file(repo, "code.txt", b"one", "older code change")
+    commit_file(repo, "Data/recent.xlsx", b"recent", "recent excel change")
+    commit_file(repo, "code.txt", b"two", "latest code change")
+
+    history = GitRepository(repo).load_recent_history(scan_limit=2, display_limit=2)
+
+    assert history.scanned_commit_count == 2
+    assert [commit.subject for commit in history.all_commits] == [
+        "latest code change",
+        "recent excel change",
+    ]
+    assert [commit.subject for commit in history.excel_commits] == ["recent excel change"]
+
+
+def test_recent_history_allows_the_old_record_marker_in_a_subject(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run_git(repo, "init", "-b", "main")
+    run_git(repo, "config", "user.name", "Test User")
+    run_git(repo, "config", "user.email", "test@example.com")
+    commit_file(repo, "Data/items.xlsx", b"workbook", "EGV-COMMIT")
+
+    history = GitRepository(repo).load_recent_history()
+
+    assert [commit.subject for commit in history.excel_commits] == ["EGV-COMMIT"]
+
+
+def test_recent_history_is_reused_by_a_new_repository_instance(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run_git(repo, "init", "-b", "main")
+    run_git(repo, "config", "user.name", "Test User")
+    run_git(repo, "config", "user.email", "test@example.com")
+    commit_file(repo, "Data/items.xlsx", b"workbook", "add workbook")
+    cache = HistoryCache(tmp_path / "cache")
+
+    first = GitRepository(repo, history_cache=cache).load_recent_history()
+    second = GitRepository(repo, history_cache=cache).load_recent_history()
+
+    assert first.source == "git"
+    assert second.source == "cache"
+    assert second.excel_commits == first.excel_commits
+
+
+def test_recent_history_cache_is_invalidated_when_head_changes(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run_git(repo, "init", "-b", "main")
+    run_git(repo, "config", "user.name", "Test User")
+    run_git(repo, "config", "user.email", "test@example.com")
+    commit_file(repo, "Data/items.xlsx", b"workbook", "add workbook")
+    cache = HistoryCache(tmp_path / "cache")
+    GitRepository(repo, history_cache=cache).load_recent_history()
+    commit_file(repo, "code.txt", b"new code", "new head")
+
+    refreshed = GitRepository(repo, history_cache=cache).load_recent_history()
+
+    assert refreshed.source == "git"
+    assert refreshed.all_commits[0].subject == "new head"
+
+
+def test_force_refresh_bypasses_recent_history_cache(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run_git(repo, "init", "-b", "main")
+    run_git(repo, "config", "user.name", "Test User")
+    run_git(repo, "config", "user.email", "test@example.com")
+    commit_file(repo, "Data/items.xlsx", b"workbook", "add workbook")
+    cache = HistoryCache(tmp_path / "cache")
+    GitRepository(repo, history_cache=cache).load_recent_history()
+
+    refreshed = GitRepository(repo, history_cache=cache).load_recent_history(force_refresh=True)
+
+    assert refreshed.source == "git"
+
+
+def test_invalid_cached_commit_fields_fall_back_to_git(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run_git(repo, "init", "-b", "main")
+    run_git(repo, "config", "user.name", "Test User")
+    run_git(repo, "config", "user.email", "test@example.com")
+    commit_file(repo, "Data/items.xlsx", b"workbook", "add workbook")
+    cache = HistoryCache(tmp_path / "cache")
+    GitRepository(repo, history_cache=cache).load_recent_history()
+    [cache_path] = cache.root.glob("*.json")
+    payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    payload["all_commits"][0]["commit_id"] = None
+    cache_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    history = GitRepository(repo, history_cache=cache).load_recent_history()
+
+    assert history.source == "git"

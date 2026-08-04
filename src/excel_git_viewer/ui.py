@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import cast
 
 from openpyxl.utils.cell import get_column_letter
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, QSettings, Qt, QThreadPool, Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -29,7 +29,15 @@ from PySide6.QtWidgets import (
 )
 
 from excel_git_viewer.git_repository import GitRepository, GitRepositoryError
-from excel_git_viewer.models import CellChange, CellContext, ChangedFile, CommitInfo, WorkbookDiff
+from excel_git_viewer.history_cache import HistoryCache
+from excel_git_viewer.models import (
+    CellChange,
+    CellContext,
+    ChangedFile,
+    CommitHistory,
+    CommitInfo,
+    WorkbookDiff,
+)
 from excel_git_viewer.task_coordinator import TaskCoordinator, TaskHandle
 from excel_git_viewer.view_models import summarize_sheets
 from excel_git_viewer.workbook_differ import (
@@ -76,6 +84,9 @@ class MainWindow(QMainWindow):
         self.resize(1380, 820)
 
         self._repository: GitRepository | None = None
+        self._history_cache = HistoryCache.default()
+        self._settings = QSettings("ExcelGitViewer", "ExcelGitViewer")
+        self._history: CommitHistory | None = None
         self._commits: list[CommitInfo] = []
         self._files: list[ChangedFile] = []
         self._current_diff: WorkbookDiff | None = None
@@ -87,6 +98,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._set_busy(False)
+        self._restore_last_repository()
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -110,13 +122,13 @@ class MainWindow(QMainWindow):
 
         self.only_excel_checkbox = QCheckBox("仅 Excel 提交")
         self.only_excel_checkbox.setChecked(True)
-        self.only_excel_checkbox.toggled.connect(self._reload_commits)
+        self.only_excel_checkbox.toggled.connect(self._filter_commits)
         repository_bar.addWidget(self.only_excel_checkbox)
 
         self.refresh_button = QPushButton("刷新")
         refresh_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
         self.refresh_button.setIcon(refresh_icon)
-        self.refresh_button.clicked.connect(self._reload_commits)
+        self.refresh_button.clicked.connect(self._force_reload_commits)
         self.refresh_button.setEnabled(False)
         repository_bar.addWidget(self.refresh_button)
         root_layout.addLayout(repository_bar)
@@ -220,51 +232,86 @@ class MainWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "选择 Git 仓库")
         if not path:
             return
+        self._open_repository(Path(path), show_error=True)
+
+    def _open_repository(self, path: Path, *, show_error: bool) -> None:
         try:
-            repository = GitRepository(Path(path))
+            repository = GitRepository(path, history_cache=self._history_cache)
         except (GitRepositoryError, ValueError) as error:
-            QMessageBox.warning(self, "无法打开仓库", str(error))
+            if show_error:
+                QMessageBox.warning(self, "无法打开仓库", str(error))
+            else:
+                self.status_label.setText("上次使用的仓库已不可用")
+                self._settings.remove("last_repository")
             return
         self._repository = repository
+        self._settings.setValue("last_repository", str(repository.root))
         self.repository_label.setText(str(repository.root))
         branch = repository.current_branch or "detached HEAD"
         self.branch_label.setText(f"分支：{branch}")
         self.refresh_button.setEnabled(True)
         self._reload_commits()
 
+    def _restore_last_repository(self) -> None:
+        stored_path = self._settings.value("last_repository")
+        if stored_path:
+            self._open_repository(Path(str(stored_path)), show_error=False)
+
     @Slot()
-    def _reload_commits(self) -> None:
+    def _force_reload_commits(self) -> None:
+        self._reload_commits(force_refresh=True)
+
+    def _reload_commits(self, *, force_refresh: bool = False) -> None:
         if self._repository is None:
             return
         repository = self._repository
-        only_excel = self.only_excel_checkbox.isChecked()
         self._file_tasks.cancel()
         self._diff_tasks.cancel()
         self._clear_files_and_diff()
+        self._history = None
+        self._commits = []
         self.commit_list.clear()
 
         def load(token: CancellationToken) -> object:
             token.raise_if_cancelled()
-            result = repository.list_commits(only_excel=only_excel)
+            result = repository.load_recent_history(force_refresh=force_refresh)
             token.raise_if_cancelled()
             return result
 
         self._start_task(
             self._commit_tasks,
             load,
-            self._commits_loaded,
+            self._history_loaded,
             "正在读取提交记录……",
         )
 
-    def _commits_loaded(self, result: object) -> None:
-        self._commits = cast(list[CommitInfo], result)
+    def _history_loaded(self, result: object) -> None:
+        self._history = cast(CommitHistory, result)
+        self._filter_commits()
+
+    @Slot()
+    def _filter_commits(self) -> None:
+        self._file_tasks.cancel()
+        self._diff_tasks.cancel()
+        self._clear_files_and_diff()
+        if self._history is None:
+            self._commits = []
+            self.commit_list.clear()
+            return
+        visible = self._history.visible_commits(only_excel=self.only_excel_checkbox.isChecked())
+        self._commits = list(visible)
         self.commit_list.clear()
         for commit in self._commits:
             timestamp = commit.authored_at.astimezone().strftime("%Y-%m-%d %H:%M")
             self.commit_list.addItem(
                 f"{commit.commit_id[:8]}  {commit.subject}\n{commit.author_name}  {timestamp}"
             )
-        self.status_label.setText(f"已加载 {len(self._commits)} 条提交")
+        mode = "Excel " if self.only_excel_checkbox.isChecked() else ""
+        source = "本地缓存" if self._history.source == "cache" else "Git"
+        self.status_label.setText(
+            f"已从{source}加载最近 {self._history.scanned_commit_count} 条普通提交，"
+            f"显示 {len(self._commits)} 条{mode}提交"
+        )
 
     @Slot(int)
     def _select_commit(self, row: int) -> None:
