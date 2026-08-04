@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+新建 XLSX 工作表.xlsx

@@ -1,0 +1,48 @@
+name: Release Windows x64
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run pytest
+      - name: Build application
+        shell: pwsh
+        run: >-
+          uv run pyinstaller --noconfirm --clean --windowed
+          --name ExcelGitViewer --collect-all openpyxl
+          src/excel_git_viewer/app.py
+      - name: Smoke test packaged application
+        shell: pwsh
+        run: dist\ExcelGitViewer\ExcelGitViewer.exe --smoke-test
+      - name: Package and hash
+        id: package
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          $asset = "ExcelGitViewer-$version-windows-x64.zip"
+          Compress-Archive -Path "dist/ExcelGitViewer/*" -DestinationPath $asset
+          $hash = (Get-FileHash -Algorithm SHA256 $asset).Hash.ToLower()
+          "$hash  $asset" | Set-Content -Encoding ascii "$asset.sha256"
+          "asset=$asset" >> $env:GITHUB_OUTPUT
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: >-
+          gh release create "${{ github.ref_name }}"
+          "${{ steps.package.outputs.asset }}"
+          "${{ steps.package.outputs.asset }}.sha256"
+          --generate-notes
