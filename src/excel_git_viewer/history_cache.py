@@ -15,7 +15,7 @@ from excel_git_viewer.models import CommitHistory, CommitInfo
 class HistoryCache:
     """Persist bounded commit history without storing workbook content."""
 
-    FORMAT_VERSION = 1
+    FORMAT_VERSION = 2
     MAX_CACHE_BYTES = 5 * 1024 * 1024
 
     def __init__(self, root: Path) -> None:
@@ -58,7 +58,6 @@ class HistoryCache:
                 return None
             return CommitHistory(
                 all_commits=self._read_commits(payload["all_commits"], display_limit),
-                excel_commits=self._read_commits(payload["excel_commits"], display_limit),
                 scanned_commit_count=scanned_commit_count,
                 scan_limit=scan_limit,
                 source="cache",
@@ -83,7 +82,6 @@ class HistoryCache:
             "display_limit": display_limit,
             "scanned_commit_count": history.scanned_commit_count,
             "all_commits": [self._write_commit(commit) for commit in history.all_commits],
-            "excel_commits": [self._write_commit(commit) for commit in history.excel_commits],
         }
         temp_path: Path | None = None
         try:

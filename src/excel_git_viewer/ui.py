@@ -10,7 +10,6 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QCheckBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -119,11 +118,6 @@ class MainWindow(QMainWindow):
 
         self.branch_label = QLabel("分支：-")
         repository_bar.addWidget(self.branch_label)
-
-        self.only_excel_checkbox = QCheckBox("仅 Excel 提交")
-        self.only_excel_checkbox.setChecked(True)
-        self.only_excel_checkbox.toggled.connect(self._filter_commits)
-        repository_bar.addWidget(self.only_excel_checkbox)
 
         self.refresh_button = QPushButton("刷新")
         refresh_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
@@ -287,30 +281,17 @@ class MainWindow(QMainWindow):
 
     def _history_loaded(self, result: object) -> None:
         self._history = cast(CommitHistory, result)
-        self._filter_commits()
-
-    @Slot()
-    def _filter_commits(self) -> None:
-        self._file_tasks.cancel()
-        self._diff_tasks.cancel()
-        self._clear_files_and_diff()
-        if self._history is None:
-            self._commits = []
-            self.commit_list.clear()
-            return
-        visible = self._history.visible_commits(only_excel=self.only_excel_checkbox.isChecked())
-        self._commits = list(visible)
+        self._commits = list(self._history.all_commits)
         self.commit_list.clear()
         for commit in self._commits:
             timestamp = commit.authored_at.astimezone().strftime("%Y-%m-%d %H:%M")
             self.commit_list.addItem(
                 f"{commit.commit_id[:8]}  {commit.subject}\n{commit.author_name}  {timestamp}"
             )
-        mode = "Excel " if self.only_excel_checkbox.isChecked() else ""
         source = "本地缓存" if self._history.source == "cache" else "Git"
         self.status_label.setText(
             f"已从{source}加载最近 {self._history.scanned_commit_count} 条普通提交，"
-            f"显示 {len(self._commits)} 条{mode}提交"
+            f"显示 {len(self._commits)} 条提交"
         )
 
     @Slot(int)

@@ -37,7 +37,7 @@ class GitRepository:
             raise ValueError("display_limit must be at least 1")
         head_output = self._try_run("rev-parse", "--verify", "HEAD")
         if head_output is None:
-            return CommitHistory((), (), 0, scan_limit)
+            return CommitHistory((), 0, scan_limit)
         head_id = head_output.decode().strip()
         if self._history_cache is not None and not force_refresh:
             cached = self._history_cache.load(
@@ -54,18 +54,12 @@ class GitRepository:
             "--no-merges",
             f"-n{scan_limit}",
             "--pretty=format:%x00%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00",
-            "--name-status",
             "-z",
         )
-        records = self._parse_history(output)
-        all_commits = tuple(record[0] for record in records[:display_limit])
-        excel_commits = tuple(
-            commit for commit, paths in records if any(self._is_excel_path(path) for path in paths)
-        )[:display_limit]
+        commits = self._parse_history(output)
         history = CommitHistory(
-            all_commits=all_commits,
-            excel_commits=excel_commits,
-            scanned_commit_count=len(records),
+            all_commits=tuple(commits[:display_limit]),
+            scanned_commit_count=len(commits),
             scan_limit=scan_limit,
         )
         if self._history_cache is not None:
@@ -90,6 +84,8 @@ class GitRepository:
             "-M",
             "-z",
             commit_id,
+            "--",
+            ":(icase,glob)**/*.xlsx",
         )
         return self._parse_changed_files(output, commit_id, parent_id)
 
@@ -134,8 +130,8 @@ class GitRepository:
             raise ValueError("object ID must be a full hexadecimal Git object ID")
 
     @staticmethod
-    def _parse_history(output: bytes) -> list[tuple[CommitInfo, tuple[str, ...]]]:
-        records: list[tuple[CommitInfo, tuple[str, ...]]] = []
+    def _parse_history(output: bytes) -> list[CommitInfo]:
+        commits: list[CommitInfo] = []
         fields = output.split(b"\x00")
         index = 0
         while index < len(fields):
@@ -149,34 +145,17 @@ class GitRepository:
                 field.decode("utf-8", errors="replace") for field in fields[index : index + 6]
             )
             index += 6
-            paths: list[str] = []
-            while index < len(fields) and fields[index] != b"":
-                raw_status = fields[index]
-                if raw_status.startswith(b"\n"):
-                    raw_status = raw_status[1:]
-                status = raw_status.decode("ascii", errors="replace")
-                if not status or status[0] not in {"A", "B", "C", "D", "M", "R", "T", "U", "X"}:
-                    raise GitRepositoryError("Git returned an unexpected history change")
-                path_count = 2 if status[0] in {"C", "R"} else 1
-                if index + path_count >= len(fields):
-                    raise GitRepositoryError("Git returned an incomplete history change")
-                for offset in range(1, path_count + 1):
-                    paths.append(fields[index + offset].decode("utf-8", errors="replace"))
-                index += path_count + 1
-            records.append(
-                (
-                    CommitInfo(
-                        commit_id=commit_id,
-                        parent_ids=tuple(parents.split()),
-                        author_name=name,
-                        author_email=email,
-                        authored_at=datetime.fromisoformat(authored_at),
-                        subject=subject,
-                    ),
-                    tuple(paths),
+            commits.append(
+                CommitInfo(
+                    commit_id=commit_id,
+                    parent_ids=tuple(parents.split()),
+                    author_name=name,
+                    author_email=email,
+                    authored_at=datetime.fromisoformat(authored_at),
+                    subject=subject,
                 )
             )
-        return records
+        return commits
 
     @staticmethod
     def _parse_changed_files(

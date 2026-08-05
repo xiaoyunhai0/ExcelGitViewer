@@ -49,7 +49,7 @@ def test_user_can_review_a_cell_change_from_a_git_commit(tmp_path: Path) -> None
     _commit_workbook(repo_path, 150, "raise reward")
 
     repository = GitRepository(repo_path)
-    [commit, _previous_commit] = repository.load_recent_history().excel_commits
+    [commit, _previous_commit] = repository.load_recent_history().all_commits
     [changed_file] = repository.list_changed_excel_files(commit.commit_id)
     old_bytes, new_bytes = repository.read_versions(changed_file)
     [change] = WorkbookDiffer().compare(old_bytes, new_bytes).cell_changes

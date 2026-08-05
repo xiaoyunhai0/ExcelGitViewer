@@ -27,24 +27,47 @@ def commit_file(repo: Path, relative_path: str, content: bytes, subject: str) ->
     return run_git(repo, "rev-parse", "HEAD")
 
 
-def test_recent_history_identifies_commits_that_changed_xlsx(tmp_path: Path) -> None:
+def test_recent_history_lists_commits_without_filtering_by_changed_path(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     run_git(repo, "init", "-b", "main")
     run_git(repo, "config", "user.name", "Test User")
     run_git(repo, "config", "user.email", "test@example.com")
 
-    commit_file(repo, "notes.txt", b"not an excel change", "update notes")
+    notes_commit = commit_file(repo, "notes.txt", b"not an excel change", "update notes")
     excel_commit = commit_file(repo, "Data/Balancing.XLSX", b"xlsx bytes", "update balance")
 
     repository = GitRepository(repo)
-    commits = repository.load_recent_history().excel_commits
+    commits = repository.load_recent_history().all_commits
 
     assert repository.current_branch == "main"
-    assert [commit.commit_id for commit in commits] == [excel_commit]
+    assert [commit.commit_id for commit in commits] == [excel_commit, notes_commit]
     assert commits[0].subject == "update balance"
     assert commits[0].author_name == "Test User"
     assert len(commits[0].parent_ids) == 1
+
+
+def test_recent_history_does_not_scan_changed_paths(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run_git(repo, "init", "-b", "main")
+    run_git(repo, "config", "user.name", "Test User")
+    run_git(repo, "config", "user.email", "test@example.com")
+    commit_file(repo, "notes.txt", b"content", "add notes")
+    repository = GitRepository(repo)
+    calls: list[tuple[str, ...]] = []
+    original_run = repository._run
+
+    def record_run(*args: str) -> bytes:
+        calls.append(args)
+        return original_run(*args)
+
+    repository._run = record_run  # type: ignore[method-assign]
+
+    repository.load_recent_history()
+
+    log_call = next(call for call in calls if call[0] == "log")
+    assert "--name-status" not in log_call
 
 
 def test_modified_xlsx_can_be_read_at_parent_and_current_commit(tmp_path: Path) -> None:
@@ -62,6 +85,55 @@ def test_modified_xlsx_can_be_read_at_parent_and_current_commit(tmp_path: Path) 
     assert changes[0].change_type == "modified"
     assert changes[0].display_path == "Data/items.xlsx"
     assert GitRepository(repo).read_versions(changes[0]) == (b"old workbook", b"new workbook")
+
+
+def test_changed_file_scan_is_limited_to_xlsx_paths(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run_git(repo, "init", "-b", "main")
+    run_git(repo, "config", "user.name", "Test User")
+    run_git(repo, "config", "user.email", "test@example.com")
+    current_commit = commit_file(repo, "Data/items.xlsx", b"workbook", "add workbook")
+    repository = GitRepository(repo)
+    calls: list[tuple[str, ...]] = []
+    original_run = repository._run
+
+    def record_run(*args: str) -> bytes:
+        calls.append(args)
+        return original_run(*args)
+
+    repository._run = record_run  # type: ignore[method-assign]
+
+    repository.list_changed_excel_files(current_commit)
+
+    diff_call = next(call for call in calls if call[0] == "diff-tree")
+    assert ":(icase,glob)**/*.xlsx" in diff_call
+
+
+def test_changed_file_path_filter_keeps_xlsx_additions_and_deletions(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run_git(repo, "init", "-b", "main")
+    run_git(repo, "config", "user.name", "Test User")
+    run_git(repo, "config", "user.email", "test@example.com")
+    added_commit = commit_file(repo, "Data/items.XLSX", b"workbook", "add workbook")
+    commit_file(repo, "notes.txt", b"notes", "add notes")
+
+    [addition] = GitRepository(repo).list_changed_excel_files(added_commit)
+
+    assert addition.change_type == "added"
+    assert addition.new_path == "Data/items.XLSX"
+
+    (repo / "Data" / "items.XLSX").unlink()
+    (repo / "notes.txt").write_bytes(b"updated notes")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-m", "remove workbook")
+    deleted_commit = run_git(repo, "rev-parse", "HEAD")
+
+    [deletion] = GitRepository(repo).list_changed_excel_files(deleted_commit)
+
+    assert deletion.change_type == "deleted"
+    assert deletion.old_path == "Data/items.XLSX"
 
 
 def test_empty_repository_has_a_branch_and_no_commits(tmp_path: Path) -> None:
@@ -97,9 +169,7 @@ def test_renamed_xlsx_reads_old_and_new_paths(tmp_path: Path) -> None:
     assert repository.read_versions(change) == (b"same workbook", b"same workbook")
 
 
-def test_recent_history_builds_all_and_excel_views_from_one_bounded_window(
-    tmp_path: Path,
-) -> None:
+def test_recent_history_returns_one_bounded_commit_list(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     run_git(repo, "init", "-b", "main")
@@ -117,7 +187,6 @@ def test_recent_history_builds_all_and_excel_views_from_one_bounded_window(
         "latest code change",
         "recent excel change",
     ]
-    assert [commit.subject for commit in history.excel_commits] == ["recent excel change"]
 
 
 def test_recent_history_allows_the_old_record_marker_in_a_subject(tmp_path: Path) -> None:
@@ -130,7 +199,7 @@ def test_recent_history_allows_the_old_record_marker_in_a_subject(tmp_path: Path
 
     history = GitRepository(repo).load_recent_history()
 
-    assert [commit.subject for commit in history.excel_commits] == ["EGV-COMMIT"]
+    assert [commit.subject for commit in history.all_commits] == ["EGV-COMMIT"]
 
 
 def test_recent_history_is_reused_by_a_new_repository_instance(tmp_path: Path) -> None:
@@ -147,7 +216,7 @@ def test_recent_history_is_reused_by_a_new_repository_instance(tmp_path: Path) -
 
     assert first.source == "git"
     assert second.source == "cache"
-    assert second.excel_commits == first.excel_commits
+    assert second.all_commits == first.all_commits
 
 
 def test_recent_history_cache_is_invalidated_when_head_changes(tmp_path: Path) -> None:

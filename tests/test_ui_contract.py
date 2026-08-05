@@ -49,15 +49,18 @@ def connected_handler(method: ast.FunctionDef, owner: str, signal: str) -> str |
     return None
 
 
-def test_history_ui_uses_cache_for_restore_and_memory_for_filtering() -> None:
+def test_history_ui_restores_cache_without_an_excel_commit_filter() -> None:
     init_method = load_main_window_method("__init__")
     open_method = load_main_window_method("_open_repository")
-    build_method = load_main_window_method("_build_ui")
+    module = ast.parse(UI_SOURCE.read_text(encoding="utf-8"))
 
     assert len(self_calls(init_method, "_restore_last_repository")) == 1
     [reload_call] = self_calls(open_method, "_reload_commits")
     assert reload_call.keywords == []
-    assert connected_handler(build_method, "only_excel_checkbox", "toggled") == "_filter_commits"
+    assert not any(
+        isinstance(node, ast.Attribute) and node.attr == "only_excel_checkbox"
+        for node in ast.walk(module)
+    )
 
 
 def test_refresh_button_forces_git_history_reload() -> None:
