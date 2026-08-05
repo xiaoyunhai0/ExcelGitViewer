@@ -26,7 +26,7 @@ class GitRepository:
 
     def load_recent_history(
         self,
-        scan_limit: int = 1000,
+        scan_limit: int = 200,
         display_limit: int = 200,
         *,
         force_refresh: bool = False,

@@ -90,6 +90,7 @@ class MainWindow(QMainWindow):
         self._files: list[ChangedFile] = []
         self._current_diff: WorkbookDiff | None = None
         self._thread_pool = QThreadPool.globalInstance()
+        self._workers: dict[tuple[int, int], _Worker] = {}
         self._commit_tasks = TaskCoordinator()
         self._file_tasks = TaskCoordinator()
         self._diff_tasks = TaskCoordinator()
@@ -462,6 +463,7 @@ class MainWindow(QMainWindow):
         handle = coordinator.begin()
         self._active_coordinator = coordinator
         worker = _Worker(handle, operation)
+        self._retain_worker(coordinator, handle.task_id, worker)
         worker.signals.completed.connect(
             lambda task_id, result: self._task_completed(coordinator, task_id, result, on_success)
         )
@@ -473,6 +475,17 @@ class MainWindow(QMainWindow):
         self._set_busy(True)
         self._thread_pool.start(worker)
 
+    def _retain_worker(
+        self,
+        coordinator: TaskCoordinator,
+        task_id: int,
+        worker: _Worker,
+    ) -> None:
+        self._workers[(id(coordinator), task_id)] = worker
+
+    def _release_worker(self, coordinator: TaskCoordinator, task_id: int) -> None:
+        self._workers.pop((id(coordinator), task_id), None)
+
     def _task_completed(
         self,
         coordinator: TaskCoordinator,
@@ -480,13 +493,20 @@ class MainWindow(QMainWindow):
         result: object,
         on_success: Callable[[object], None],
     ) -> None:
+        self._release_worker(coordinator, task_id)
         if not coordinator.is_current(task_id):
             return
         self._active_coordinator = None
         self._set_busy(False)
         on_success(result)
 
-    def _task_failed(self, coordinator: TaskCoordinator, task_id: int, message: str) -> None:
+    def _task_failed(
+        self,
+        coordinator: TaskCoordinator,
+        task_id: int,
+        message: str,
+    ) -> None:
+        self._release_worker(coordinator, task_id)
         if not coordinator.is_current(task_id):
             return
         self._active_coordinator = None
@@ -494,7 +514,12 @@ class MainWindow(QMainWindow):
         self.status_label.setText("操作失败")
         QMessageBox.warning(self, "操作失败", message or "未知错误")
 
-    def _task_cancelled(self, coordinator: TaskCoordinator, task_id: int) -> None:
+    def _task_cancelled(
+        self,
+        coordinator: TaskCoordinator,
+        task_id: int,
+    ) -> None:
+        self._release_worker(coordinator, task_id)
         if not coordinator.is_current(task_id):
             return
         self._active_coordinator = None

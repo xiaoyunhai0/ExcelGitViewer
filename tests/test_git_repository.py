@@ -68,6 +68,7 @@ def test_recent_history_does_not_scan_changed_paths(tmp_path: Path) -> None:
 
     log_call = next(call for call in calls if call[0] == "log")
     assert "--name-status" not in log_call
+    assert "-n200" in log_call
 
 
 def test_modified_xlsx_can_be_read_at_parent_and_current_commit(tmp_path: Path) -> None:

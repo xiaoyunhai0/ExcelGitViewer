@@ -15,7 +15,7 @@ from excel_git_viewer.models import CommitHistory, CommitInfo
 class HistoryCache:
     """Persist bounded commit history without storing workbook content."""
 
-    FORMAT_VERSION = 2
+    FORMAT_VERSION = 3
     MAX_CACHE_BYTES = 5 * 1024 * 1024
 
     def __init__(self, root: Path) -> None:

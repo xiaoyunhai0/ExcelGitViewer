@@ -73,3 +73,20 @@ def test_refresh_button_forces_git_history_reload() -> None:
     keyword = reload_call.keywords[0]
     assert keyword.arg == "force_refresh"
     assert isinstance(keyword.value, ast.Constant) and keyword.value.value is True
+
+
+def test_background_workers_are_retained_until_their_ui_callback() -> None:
+    init_method = load_main_window_method("__init__")
+    start_method = load_main_window_method("_start_task")
+    terminal_methods = [
+        load_main_window_method("_task_completed"),
+        load_main_window_method("_task_failed"),
+        load_main_window_method("_task_cancelled"),
+    ]
+
+    assert any(
+        isinstance(node, ast.Attribute) and node.attr == "_workers"
+        for node in ast.walk(init_method)
+    )
+    assert len(self_calls(start_method, "_retain_worker")) == 1
+    assert all(len(self_calls(method, "_release_worker")) == 1 for method in terminal_methods)

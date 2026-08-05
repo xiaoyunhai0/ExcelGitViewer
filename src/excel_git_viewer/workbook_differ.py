@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date, datetime, time
+from hashlib import sha256
 from io import BytesIO
-from threading import Event
+from threading import Event, Lock
+from typing import ClassVar
 from zipfile import BadZipFile, ZipFile, is_zipfile
 
 from openpyxl import load_workbook
@@ -64,6 +67,10 @@ class WorkbookDiffer:
     MAX_ZIP_ENTRIES = 10_000
     MAX_ZIP_ENTRY_BYTES = 64 * 1024 * 1024
     MAX_ZIP_TOTAL_BYTES = 256 * 1024 * 1024
+    SNAPSHOT_CACHE_MAX_BYTES = 384 * 1024 * 1024
+    _snapshot_cache: ClassVar[OrderedDict[str, tuple[_WorkbookSnapshot, int]]] = OrderedDict()
+    _snapshot_cache_bytes: ClassVar[int] = 0
+    _snapshot_cache_lock: ClassVar[Lock] = Lock()
 
     def compare(
         self,
@@ -149,6 +156,10 @@ class WorkbookDiffer:
         WorkbookDiffer._raise_if_cancelled(cancellation)
         if xlsx_bytes is None:
             return _WorkbookSnapshot(cells={}, sheets=frozenset())
+        cache_key = sha256(xlsx_bytes).hexdigest()
+        cached = WorkbookDiffer._get_cached_snapshot(cache_key)
+        if cached is not None:
+            return cached
         WorkbookDiffer._preflight_zip(xlsx_bytes)
         try:
             workbook = load_workbook(
@@ -163,6 +174,7 @@ class WorkbookDiffer:
             cells: dict[tuple[str, str], _CellSnapshot] = {}
             for sheet in workbook.worksheets:
                 WorkbookDiffer._raise_if_cancelled(cancellation)
+                hidden_columns = WorkbookDiffer._hidden_columns(sheet)
                 for row in sheet.iter_rows():
                     WorkbookDiffer._raise_if_cancelled(cancellation)
                     for cell in row:
@@ -172,11 +184,56 @@ class WorkbookDiffer:
                                 data_type=WorkbookDiffer._normalize_data_type(cell.data_type),
                                 hidden_sheet=sheet.sheet_state != "visible",
                                 hidden_row=bool(sheet.row_dimensions[cell.row].hidden),
-                                hidden_column=WorkbookDiffer._is_hidden_column(sheet, cell.column),
+                                hidden_column=cell.column in hidden_columns,
                             )
-            return _WorkbookSnapshot(cells=cells, sheets=frozenset(workbook.sheetnames))
+            snapshot = _WorkbookSnapshot(cells=cells, sheets=frozenset(workbook.sheetnames))
+            WorkbookDiffer._store_cached_snapshot(cache_key, snapshot)
+            return snapshot
         finally:
             workbook.close()
+
+    @classmethod
+    def clear_snapshot_cache(cls) -> None:
+        with cls._snapshot_cache_lock:
+            cls._snapshot_cache.clear()
+            cls._snapshot_cache_bytes = 0
+
+    @classmethod
+    def _get_cached_snapshot(cls, cache_key: str) -> _WorkbookSnapshot | None:
+        with cls._snapshot_cache_lock:
+            cached = cls._snapshot_cache.get(cache_key)
+            if cached is None:
+                return None
+            cls._snapshot_cache.move_to_end(cache_key)
+            return cached[0]
+
+    @classmethod
+    def _store_cached_snapshot(cls, cache_key: str, snapshot: _WorkbookSnapshot) -> None:
+        estimated_bytes = cls._estimate_snapshot_bytes(snapshot)
+        if estimated_bytes > cls.SNAPSHOT_CACHE_MAX_BYTES:
+            return
+        with cls._snapshot_cache_lock:
+            previous = cls._snapshot_cache.pop(cache_key, None)
+            if previous is not None:
+                cls._snapshot_cache_bytes -= previous[1]
+            cls._snapshot_cache[cache_key] = (snapshot, estimated_bytes)
+            cls._snapshot_cache_bytes += estimated_bytes
+            while cls._snapshot_cache_bytes > cls.SNAPSHOT_CACHE_MAX_BYTES:
+                _, (_, removed_bytes) = cls._snapshot_cache.popitem(last=False)
+                cls._snapshot_cache_bytes -= removed_bytes
+
+    @staticmethod
+    def _estimate_snapshot_bytes(snapshot: _WorkbookSnapshot) -> int:
+        estimated_bytes = 512 + sum(128 + len(name) * 2 for name in snapshot.sheets)
+        for (sheet_name, coordinate), cell in snapshot.cells.items():
+            estimated_bytes += (
+                256
+                + len(sheet_name) * 2
+                + len(coordinate) * 2
+                + len(cell.value) * 2
+                + len(cell.data_type) * 2
+            )
+        return estimated_bytes
 
     @staticmethod
     def _preflight_zip(xlsx_bytes: bytes) -> None:
@@ -271,13 +328,14 @@ class WorkbookDiffer:
         }.get(data_type, data_type)
 
     @staticmethod
-    def _is_hidden_column(sheet: Worksheet, column: int) -> bool:
+    def _hidden_columns(sheet: Worksheet) -> frozenset[int]:
+        hidden_columns: set[int] = set()
         for dimension in sheet.column_dimensions.values():
             start = dimension.min or 0
             end = dimension.max or start
-            if dimension.hidden and start <= column <= end:
-                return True
-        return False
+            if dimension.hidden:
+                hidden_columns.update(range(start, end + 1))
+        return frozenset(hidden_columns)
 
     @staticmethod
     def _raise_if_cancelled(cancellation: CancellationToken | None) -> None:

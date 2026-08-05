@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
+import excel_git_viewer.workbook_differ as workbook_differ_module
 from excel_git_viewer.workbook_differ import (
     CancellationToken,
     OperationCancelled,
@@ -188,6 +189,28 @@ def test_change_inside_grouped_hidden_columns_is_marked() -> None:
     [change] = WorkbookDiffer().compare(old_workbook, new_workbook).cell_changes
 
     assert change.hidden_column is True
+
+
+def test_repeated_comparisons_reuse_parsed_workbook_snapshots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    WorkbookDiffer.clear_snapshot_cache()
+    data = workbook_bytes({"A1": "Potion", "B2": 100})
+    load_count = 0
+    original_load_workbook = workbook_differ_module.load_workbook
+
+    def counted_load_workbook(*args: object, **kwargs: object) -> object:
+        nonlocal load_count
+        load_count += 1
+        return original_load_workbook(*args, **kwargs)
+
+    monkeypatch.setattr(workbook_differ_module, "load_workbook", counted_load_workbook)
+
+    WorkbookDiffer().compare(data, data)
+    WorkbookDiffer().compare(data, data)
+
+    assert load_count == 1
+    WorkbookDiffer.clear_snapshot_cache()
 
 
 def test_git_lfs_pointer_has_a_specific_diagnostic() -> None:
