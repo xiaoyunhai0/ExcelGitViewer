@@ -210,6 +210,7 @@ excel-git-viewer/
 ├── app.py
 ├── requirements.txt
 ├── README.md
+├── README.zh-CN.md
 ├── src/
 │   ├── ui/
 │   │   ├── main_window.py
@@ -981,6 +982,7 @@ MVP 最终应包含：
 ExcelGitViewer-v<version>-windows-x64.zip
 ExcelGitViewer-v<version>-windows-x64.zip.sha256
 README.md
+README.zh-CN.md
 LICENSE (MIT)
 sample-repository/ 或测试数据说明
 ```

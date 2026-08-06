@@ -1,89 +1,100 @@
 # Excel Git Viewer
 
+<p align="center">
+  <strong>English</strong> | <a href="README.zh-CN.md">简体中文</a>
+</p>
+
 [![CI](https://github.com/xiaoyunhai0/ExcelGitViewer/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaoyunhai0/ExcelGitViewer/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/xiaoyunhai0/ExcelGitViewer)](https://github.com/xiaoyunhai0/ExcelGitViewer/releases/latest)
+[![License](https://img.shields.io/github/license/xiaoyunhai0/ExcelGitViewer)](LICENSE)
 
-Excel Git Viewer 是面向程序开发人员的 Windows 只读审查工具。它直接读取本地 Git
-历史，展示策划在普通提交中对 `.xlsx` 工作簿造成的单元格变化。
+Excel Git Viewer is a read-only Windows review tool for developers. It reads local Git history and
+shows the cell-level changes made to `.xlsx` workbooks in non-merge commits.
 
-工具不会切换分支、检出文件或修改仓库，也不要求项目使用 Git LFS。它用于补足 Git
-客户端只能看到“Excel 文件已变化”，却看不到具体改动位置的问题。
+The application never checks out files, switches branches, or modifies the repository. Git LFS is
+not required. It fills the gap between seeing that an Excel file changed and knowing exactly what
+changed inside it.
 
-## 下载与使用
+## Download and Use
 
-从 [GitHub Releases](https://github.com/xiaoyunhai0/ExcelGitViewer/releases/latest)
-下载最新的 `ExcelGitViewer-*-windows-x64.zip`。解压完整目录后运行
-`ExcelGitViewer.exe`，无需安装 Python。
+Download the latest `ExcelGitViewer-*-windows-x64.zip` from
+[GitHub Releases](https://github.com/xiaoyunhai0/ExcelGitViewer/releases/latest). Extract the entire
+archive and run `ExcelGitViewer.exe`. Python is not required.
 
-运行条件：
+Requirements:
 
-- Windows 10/11 x64；
-- 系统 `PATH` 中可以直接运行 `git`；
-- 目标仓库已由 Git、Sourcetree 或其他客户端拉取到本地。
+- Windows 10 or 11, x64;
+- `git` available on the system `PATH`;
+- a local repository cloned with Git, Sourcetree, or another Git client;
+- the current desktop interface uses Simplified Chinese.
 
-基本流程：
+Basic workflow:
 
-1. 点击“选择仓库”，选择本地 Git 项目目录。
-2. 在提交表中选择一次普通提交。
-3. 选择该提交中发生变化的 Excel 文件。
-4. 在差异表和新旧上下文中检查具体改动。
+1. Select a local Git repository.
+2. Select a non-merge commit from the commit table.
+3. Select an Excel file changed by that commit.
+4. Review its cell differences and the surrounding before/after context.
 
-“刷新”会强制重新读取当前仓库的提交历史。正常启动会自动恢复上次仓库，并在 HEAD
-未变化时直接使用本地历史缓存。
+The application automatically reopens the last repository. When its HEAD is unchanged, commit
+history is restored from the local cache. Use **Refresh** to force a new Git history scan.
 
-## 审查能力
+## Review Features
 
-- 表格显示提交哈希、说明、作者、时间以及发生变化的 Excel 文件。
-- 识别 `.xlsx` 文件的新增、修改、删除和重命名。
-- 显示工作表变化、单元格新增、删除、修改及新旧值。
-- 比较公式文本但不执行公式，保留并提示空格、制表符和换行。
-- 标记隐藏工作表、隐藏行和隐藏列中的变化。
-- 在新旧上下文中定位当前改动格：旧值为红色，新值为绿色，行列标题为黄色。
-- 六个审查面板可拖动停靠、重新组合或浮动显示，重启后恢复工作区布局。
-- 提供“恢复默认布局”，面板拖乱后可一键回到推荐排列。
-- 所有表格列宽均可拖动；双击列边界自动适配内容，常用表格会记住列宽。
+- Displays commit hash, subject, author, time, and changed Excel files in compact tables.
+- Detects added, modified, deleted, and renamed `.xlsx` files.
+- Shows worksheet changes and added, deleted, or modified cell values.
+- Compares formula text without executing formulas.
+- Preserves and flags spaces, tabs, newlines, hidden worksheets, hidden rows, and hidden columns.
+- Highlights the selected old cell in red, the new cell in green, and its row and column in amber.
+- Provides six dockable panels that can be rearranged, tabbed, resized, or floated.
+- Restores the panel layout after restart and provides a **Reset Layout** action.
+- Allows every table column to be resized; double-clicking a divider fits it to its content.
+- Persists column widths for the commit, file, worksheet, and cell-difference tables.
 
-当前版本完成了“Git 提交浏览与单元格差异”。图片新增、删除、替换、移动、缩放及
-预览属于后续里程碑，尚未实现。
+The current milestone covers Git commit browsing and cell differences. Embedded image additions,
+deletions, replacements, movement, resizing, and previews are planned but not implemented.
 
-## 性能机制
+## Performance
 
-- 历史读取限制在当前分支最近 200 条普通提交，界面最多显示 200 条。
-- 加载提交历史时不扫描每条提交的文件路径；选中提交后才查询其 `.xlsx` 变化。
-- 使用约 384 MB 上限的进程内 LRU 工作簿快照缓存，加速重复和相邻文件对比。
-- 工作簿在后台解析；切换选择或取消任务后，过期结果不会写回界面。
-- 提交历史缓存会持久化到磁盘，仓库 HEAD 变化时自动失效。
+- Reads at most the latest 200 non-merge commits from the current branch.
+- Does not scan changed paths while loading history; `.xlsx` paths are queried after commit selection.
+- Uses an in-process LRU workbook snapshot cache with an approximate 384 MB limit.
+- Parses workbooks in background tasks and discards stale results after selection changes.
+- Persists commit metadata to disk and invalidates it automatically when the repository HEAD changes.
 
-## 本地数据与重置
+## Local Data and Reset
 
-Windows 提交历史缓存位于：
+On Windows, the commit history cache is stored at:
 
 ```text
 %LOCALAPPDATA%\ExcelGitViewer\history
 ```
 
-上次仓库和界面布局由 Qt 保存在以下注册表位置：
+The last repository, dock layout, and table widths are stored by Qt under:
 
 ```text
 HKEY_CURRENT_USER\Software\ExcelGitViewer\ExcelGitViewer
 ```
 
-通常不需要手动清理。历史缓存损坏或与当前 HEAD 不匹配时，程序会自动重新读取 Git。
-需要完全重置时，可在退出程序后删除上述缓存目录和注册表项。
+Manual cleanup is normally unnecessary. Invalid or stale history caches are rebuilt automatically.
+For a complete reset, close the application and remove the cache directory and registry key above.
 
-## 支持范围
+## Supported Scope
 
-工具只处理 `.xlsx`，只比较普通提交与其唯一父提交。根提交按空工作簿处理，合并提交、
-未提交改动、任意两次提交对比和 `.xls` 均不在当前范围内。
+The application handles `.xlsx` files and compares each non-merge commit with its single parent. Root
+commits use an empty workbook as the old version. Merge commits, working-tree changes, arbitrary
+commit pairs, and legacy `.xls` files are outside the current scope.
 
-当前比较单元格值和公式文本，不比较颜色、边框、字体、图表、形状、批注、宏或外部链接
-的执行结果。Microsoft Excel 固定样本已进入自动测试；WPS 固定样本仍需补充人工验收。
+It compares cell values and formula text. Formatting, charts, shapes, comments, macros, and evaluated
+external links are not compared. A Microsoft Excel fixture is covered by automated tests; a fixed WPS
+fixture and manual WPS acceptance are still pending.
 
-完整约束和验收标准见 [开发规格](docs/development-spec.md)。
+See the [development specification](docs/development-spec.md) for complete constraints and acceptance
+criteria.
 
-## 本地开发
+## Development
 
-项目使用 Python 3.12 和 [uv](https://docs.astral.sh/uv/)：
+The project uses Python 3.12 and [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv sync --locked
@@ -94,21 +105,23 @@ uv run pytest
 uv run excel-git-viewer
 ```
 
-Linux 缺少 Qt 系统动态库时，窗口测试会跳过；核心 Git 与 Excel 测试仍可运行。Windows
-CI 会运行真实 Qt 窗口检查。
+Window tests are skipped when the Linux host does not provide the required Qt system libraries. The
+Windows CI job runs the real Qt window checks.
 
-测试用工作簿必须只包含合成数据，统一放在 `tests/fixtures/excel/`。不要提交真实项目的
-策划表、导出的敏感数据或其他业务文件。
+Workbook fixtures must contain synthetic data only and belong under `tests/fixtures/excel/`. Never
+commit production workbooks, exported business data, or other sensitive files.
 
-## 发布
+## Release Process
 
-推送到 `main` 或创建 Pull Request 时，GitHub Actions 会在 Linux 和 Windows 上运行
-Ruff、mypy、pytest，并在 Windows 上检查 Qt 窗口。
+Pushes to `main` and pull requests run Ruff, mypy, and pytest on Linux and Windows. Windows also runs
+a real Qt window smoke test.
 
-推送 `v*` 标签后，Windows Runner 使用 PyInstaller 构建目录模式 EXE，运行打包后烟雾
-测试，生成 ZIP 和 SHA-256 文件，并创建 GitHub Release。
+Pushing a `v*` tag builds the directory-mode executable with PyInstaller, tests the packaged EXE, and
+publishes a ZIP archive with its SHA-256 checksum to GitHub Releases.
 
-## 安全与许可
+## Security and License
 
-程序只通过 Git 对象读取历史文件，不执行宏、公式或外部链接。工作簿打开前会检查 ZIP
-条目数量和解压尺寸。项目使用 [MIT License](LICENSE)。
+Excel Git Viewer reads workbook bytes from Git objects without executing macros, formulas, or external
+links. ZIP entry counts and extracted sizes are checked before a workbook is opened.
+
+Licensed under the [MIT License](LICENSE).
