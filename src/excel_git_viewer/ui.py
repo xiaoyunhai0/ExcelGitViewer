@@ -10,6 +10,7 @@ from PySide6.QtGui import QCloseEvent, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QDockWidget,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -18,7 +19,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
-    QSplitter,
     QStyle,
     QTableWidget,
     QTableWidgetItem,
@@ -112,8 +112,16 @@ QTableWidget#dataTable QHeaderView::section {
     background: #eef2f6;
     color: #475569;
 }
-QSplitter::handle { background: #d8dee8; }
-QSplitter::handle:hover { background: #94a3b8; }
+QDockWidget {
+    color: #334155;
+}
+QDockWidget::title {
+    background: #eef2f6;
+    border: 1px solid #d8dee8;
+    padding: 6px 8px;
+    text-align: left;
+    font-weight: 600;
+}
 QProgressBar {
     border: 1px solid #cbd5e1;
     border-radius: 3px;
@@ -177,7 +185,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._set_busy(False)
-        self._restore_splitter_state()
+        self._restore_layout_state()
         self._restore_last_repository()
 
     def _build_ui(self) -> None:
@@ -213,93 +221,104 @@ class MainWindow(QMainWindow):
         self.refresh_button.clicked.connect(self._force_reload_commits)
         self.refresh_button.setEnabled(False)
         repository_bar.addWidget(self.refresh_button)
+        self.reset_layout_button = QPushButton("恢复默认布局")
+        reset_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarNormalButton)
+        self.reset_layout_button.setIcon(reset_icon)
+        self.reset_layout_button.clicked.connect(self._reset_layout)
+        repository_bar.addWidget(self.reset_layout_button)
         root_layout.addWidget(top_bar)
 
-        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.main_splitter.setChildrenCollapsible(False)
-        self.main_splitter.setHandleWidth(6)
-
-        self.navigation_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.navigation_splitter.setChildrenCollapsible(False)
-        self.navigation_splitter.setHandleWidth(6)
+        self.workspace = QMainWindow()
+        self.workspace.setObjectName("reviewWorkspace")
+        self.workspace.setDockNestingEnabled(True)
+        self.workspace.setDockOptions(
+            QMainWindow.DockOption.AllowNestedDocks
+            | QMainWindow.DockOption.AllowTabbedDocks
+            | QMainWindow.DockOption.AnimatedDocks
+        )
 
         self.commit_table = self._data_table(4)
         self.commit_table.setHorizontalHeaderLabels(["提交", "说明", "作者", "时间"])
         self.commit_table.setMinimumWidth(300)
         self.commit_table.verticalHeader().setDefaultSectionSize(42)
-        commit_header = self.commit_table.horizontalHeader()
-        commit_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        commit_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        commit_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        commit_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.commit_table.setColumnWidth(0, 82)
+        self._set_initial_column_widths(self.commit_table, (82, 215, 88, 120))
         self.commit_table.currentCellChanged.connect(self._select_commit)
-        self.navigation_splitter.addWidget(self._panel("提交记录", self.commit_table))
+        self.commit_dock = self._dock_panel("提交记录", "commitDock", self.commit_table)
 
         self.file_table = self._data_table(2)
         self.file_table.setHorizontalHeaderLabels(["状态", "Excel 文件"])
         self.file_table.setMinimumWidth(250)
         self.file_table.verticalHeader().setDefaultSectionSize(34)
-        file_header = self.file_table.horizontalHeader()
-        file_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        file_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.file_table.setColumnWidth(0, 52)
+        self._set_initial_column_widths(self.file_table, (58, 420))
         self.file_table.currentCellChanged.connect(self._select_file)
-        self.navigation_splitter.addWidget(self._panel("Excel 文件", self.file_table))
-        self.navigation_splitter.setSizes([500, 260])
-        self.main_splitter.addWidget(self.navigation_splitter)
+        self.file_dock = self._dock_panel("Excel 文件", "fileDock", self.file_table)
 
-        details = QWidget()
-        details_layout = QVBoxLayout(details)
-        details_layout.setContentsMargins(0, 0, 0, 0)
-        details_layout.setSpacing(8)
         self.summary_label = QLabel("选择 Excel 文件查看差异")
         self.summary_label.setObjectName("summaryLabel")
-        details_layout.addWidget(self.summary_label)
-
-        self.details_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.details_splitter.setChildrenCollapsible(False)
-        self.details_splitter.setHandleWidth(6)
 
         self.sheet_table = self._data_table(3, selectable=False)
         self.sheet_table.setHorizontalHeaderLabels(["工作表", "状态", "单元格变化"])
-        self.sheet_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.sheet_table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self.sheet_table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self.details_splitter.addWidget(self._panel("工作表概览", self.sheet_table))
+        self._set_initial_column_widths(self.sheet_table, (280, 90, 120))
+        self.sheet_dock = self._dock_panel("工作表概览", "sheetDock", self.sheet_table)
 
         self.cell_table = self._data_table(6)
         self.cell_table.setHorizontalHeaderLabels(
             ["工作表", "位置", "类型", "旧值", "新值", "标记"]
         )
-        header = self.cell_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self._set_initial_column_widths(self.cell_table, (120, 70, 70, 210, 210, 140))
         self.cell_table.currentCellChanged.connect(self._show_context_for_row)
-        self.details_splitter.addWidget(self._panel("差异记录", self.cell_table))
+        diff_content = QWidget()
+        diff_layout = QVBoxLayout(diff_content)
+        diff_layout.setContentsMargins(0, 0, 0, 0)
+        diff_layout.setSpacing(6)
+        diff_layout.addWidget(self.summary_label)
+        diff_layout.addWidget(self.cell_table, 1)
+        self.cell_dock = self._dock_panel("差异记录", "cellDock", diff_content)
 
-        self.context_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.context_splitter.setChildrenCollapsible(False)
-        self.context_splitter.setHandleWidth(6)
         self.old_context_table = self._context_table()
         self.new_context_table = self._context_table()
-        self.context_splitter.addWidget(self._panel("修改前上下文", self.old_context_table))
-        self.context_splitter.addWidget(self._panel("修改后上下文", self.new_context_table))
-        self.context_splitter.setSizes([1, 1])
-        self.details_splitter.addWidget(self.context_splitter)
-        self.details_splitter.setSizes([150, 350, 240])
-        details_layout.addWidget(self.details_splitter, 1)
+        self.old_context_dock = self._dock_panel(
+            "修改前上下文", "oldContextDock", self.old_context_table
+        )
+        self.new_context_dock = self._dock_panel(
+            "修改后上下文", "newContextDock", self.new_context_table
+        )
 
-        self.main_splitter.addWidget(details)
-        self.main_splitter.setSizes([520, 860])
-        self.main_splitter.setStretchFactor(0, 1)
-        self.main_splitter.setStretchFactor(1, 2)
-        root_layout.addWidget(self.main_splitter, 1)
+        left = Qt.DockWidgetArea.LeftDockWidgetArea
+        right = Qt.DockWidgetArea.RightDockWidgetArea
+        for dock in (self.commit_dock, self.file_dock):
+            self.workspace.addDockWidget(left, dock)
+        for dock in (
+            self.sheet_dock,
+            self.cell_dock,
+            self.old_context_dock,
+            self.new_context_dock,
+        ):
+            self.workspace.addDockWidget(right, dock)
+        self.workspace.splitDockWidget(self.commit_dock, self.file_dock, Qt.Orientation.Vertical)
+        self.workspace.splitDockWidget(self.sheet_dock, self.cell_dock, Qt.Orientation.Vertical)
+        self.workspace.splitDockWidget(
+            self.cell_dock, self.old_context_dock, Qt.Orientation.Vertical
+        )
+        self.workspace.splitDockWidget(
+            self.old_context_dock, self.new_context_dock, Qt.Orientation.Horizontal
+        )
+        self.workspace.resizeDocks(
+            [self.commit_dock, self.sheet_dock], [500, 860], Qt.Orientation.Horizontal
+        )
+        self.workspace.resizeDocks(
+            [self.commit_dock, self.file_dock], [500, 260], Qt.Orientation.Vertical
+        )
+        self.workspace.resizeDocks(
+            [self.sheet_dock, self.cell_dock, self.old_context_dock],
+            [140, 360, 240],
+            Qt.Orientation.Vertical,
+        )
+        self._default_workspace_state = self.workspace.saveState()
+        self._default_header_states = {
+            key: header.saveState() for key, header in self._persistent_table_headers()
+        }
+        root_layout.addWidget(self.workspace, 1)
 
         status_bar = QWidget()
         status_bar.setObjectName("statusBar")
@@ -321,17 +340,16 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(root)
 
-    @staticmethod
-    def _panel(title: str, content: QWidget) -> QWidget:
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-        heading = QLabel(title)
-        heading.setObjectName("sectionTitle")
-        layout.addWidget(heading)
-        layout.addWidget(content, 1)
-        return panel
+    def _dock_panel(self, title: str, object_name: str, content: QWidget) -> QDockWidget:
+        dock = QDockWidget(title, self.workspace)
+        dock.setObjectName(object_name)
+        dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
+        dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        dock.setWidget(content)
+        return dock
 
     @staticmethod
     def _data_table(column_count: int, *, selectable: bool = True) -> QTableWidget:
@@ -349,6 +367,7 @@ class MainWindow(QMainWindow):
         table.setShowGrid(False)
         table.setWordWrap(False)
         table.verticalHeader().setVisible(False)
+        MainWindow._make_columns_resizable(table, default_width=120)
         return table
 
     @staticmethod
@@ -358,8 +377,21 @@ class MainWindow(QMainWindow):
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         table.setAlternatingRowColors(True)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        MainWindow._make_columns_resizable(table, default_width=96)
         return table
+
+    @staticmethod
+    def _make_columns_resizable(table: QTableWidget, *, default_width: int) -> None:
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setMinimumSectionSize(48)
+        header.setDefaultSectionSize(default_width)
+        header.sectionHandleDoubleClicked.connect(table.resizeColumnToContents)
+
+    @staticmethod
+    def _set_initial_column_widths(table: QTableWidget, widths: tuple[int, ...]) -> None:
+        for column, width in enumerate(widths):
+            table.setColumnWidth(column, width)
 
     @Slot()
     def _choose_repository(self) -> None:
@@ -391,22 +423,34 @@ class MainWindow(QMainWindow):
         if stored_path:
             self._open_repository(Path(str(stored_path)), show_error=False)
 
-    def _restore_splitter_state(self) -> None:
-        for key, splitter in (
-            ("layout/main_splitter", self.main_splitter),
-            ("layout/navigation_splitter", self.navigation_splitter),
-            ("layout/details_splitter", self.details_splitter),
-            ("layout/context_splitter", self.context_splitter),
-        ):
+    def _persistent_table_headers(self) -> tuple[tuple[str, QHeaderView], ...]:
+        return (
+            ("layout/commit_columns", self.commit_table.horizontalHeader()),
+            ("layout/file_columns", self.file_table.horizontalHeader()),
+            ("layout/sheet_columns", self.sheet_table.horizontalHeader()),
+            ("layout/cell_columns", self.cell_table.horizontalHeader()),
+        )
+
+    def _restore_layout_state(self) -> None:
+        workspace_state = self._settings.value("layout/workspace")
+        if isinstance(workspace_state, QByteArray):
+            self.workspace.restoreState(workspace_state)
+        for key, header in self._persistent_table_headers():
             state = self._settings.value(key)
             if isinstance(state, QByteArray):
-                splitter.restoreState(state)
+                header.restoreState(state)
+
+    @Slot()
+    def _reset_layout(self) -> None:
+        self.workspace.restoreState(self._default_workspace_state)
+        for key, header in self._persistent_table_headers():
+            header.restoreState(self._default_header_states[key])
+        self.status_label.setText("已恢复默认布局")
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        self._settings.setValue("layout/main_splitter", self.main_splitter.saveState())
-        self._settings.setValue("layout/navigation_splitter", self.navigation_splitter.saveState())
-        self._settings.setValue("layout/details_splitter", self.details_splitter.saveState())
-        self._settings.setValue("layout/context_splitter", self.context_splitter.saveState())
+        self._settings.setValue("layout/workspace", self.workspace.saveState())
+        for key, header in self._persistent_table_headers():
+            self._settings.setValue(key, header.saveState())
         super().closeEvent(event)
 
     @Slot()

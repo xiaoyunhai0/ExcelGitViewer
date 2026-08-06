@@ -92,7 +92,7 @@ def test_background_workers_are_retained_until_their_ui_callback() -> None:
     assert all(len(self_calls(method, "_release_worker")) == 1 for method in terminal_methods)
 
 
-def test_workspace_uses_tables_and_nested_resizable_splitters() -> None:
+def test_workspace_uses_tables_and_dockable_panels() -> None:
     build_method = load_main_window_method("_build_ui")
     attributes = {
         node.attr
@@ -103,11 +103,22 @@ def test_workspace_uses_tables_and_nested_resizable_splitters() -> None:
     }
 
     assert {"commit_table", "file_table"} <= attributes
-    assert {
-        "main_splitter",
-        "navigation_splitter",
-        "details_splitter",
-        "context_splitter",
-    } <= attributes
+    assert {"workspace", "commit_dock", "file_dock", "sheet_dock", "cell_dock"} <= attributes
+    assert {"old_context_dock", "new_context_dock"} <= attributes
+    assert not any(attribute.endswith("splitter") for attribute in attributes)
     assert "commit_list" not in attributes
     assert "file_list" not in attributes
+
+
+def test_table_columns_are_not_locked_to_program_resize_modes() -> None:
+    module = ast.parse(UI_SOURCE.read_text(encoding="utf-8"))
+    locked_modes = {
+        node.attr
+        for node in ast.walk(module)
+        if isinstance(node, ast.Attribute) and node.attr in {"Fixed", "Stretch", "ResizeToContents"}
+    }
+
+    assert locked_modes == set()
+    assert any(
+        isinstance(node, ast.Attribute) and node.attr == "Interactive" for node in ast.walk(module)
+    )
