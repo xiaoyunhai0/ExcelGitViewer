@@ -21,7 +21,43 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
-      - run: uv run pytest
+      - id: tests
+        continue-on-error: true
+        run: uv run pytest
+      - name: Diagnose dock capabilities
+        if: runner.os == 'Windows' && steps.tests.outcome == 'failure'
+        continue-on-error: true
+        run: >-
+          uv run pytest
+          tests/test_ui_threads.py::test_workspace_panes_are_movable_docks
+      - name: Diagnose dock persistence
+        if: runner.os == 'Windows' && steps.tests.outcome == 'failure'
+        continue-on-error: true
+        run: >-
+          uv run pytest
+          tests/test_ui_threads.py::test_dock_layout_is_restored_after_reopening
+      - name: Diagnose default layout
+        if: runner.os == 'Windows' && steps.tests.outcome == 'failure'
+        continue-on-error: true
+        run: >-
+          uv run pytest
+          tests/test_ui_threads.py::test_default_layout_action_restores_docks_and_column_widths
+      - name: Diagnose resizable columns
+        if: runner.os == 'Windows' && steps.tests.outcome == 'failure'
+        continue-on-error: true
+        run: >-
+          uv run pytest
+          tests/test_ui_threads.py::test_every_table_column_can_be_resized_by_the_user
+      - name: Diagnose column persistence
+        if: runner.os == 'Windows' && steps.tests.outcome == 'failure'
+        continue-on-error: true
+        run: >-
+          uv run pytest
+          tests/test_ui_threads.py::test_fixed_table_column_widths_are_restored_after_reopening
+      - name: Fail after test diagnostics
+        if: steps.tests.outcome == 'failure'
+        shell: bash
+        run: exit 1
       - name: Smoke test the Qt window
         if: runner.os == 'Windows'
         shell: pwsh
