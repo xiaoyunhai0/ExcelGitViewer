@@ -31,18 +31,29 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         shell: bash
         run: |
+          publish_notes() {
+            local tag="$1"
+            local notes="docs/releases/$tag.md"
+            if [[ ! -f "$notes" ]]; then
+              echo "No curated notes found at $notes; keeping generated notes."
+              return
+            fi
+            if ! gh release view "$tag" >/dev/null 2>&1; then
+              echo "Release $tag does not exist; skipping."
+              return
+            fi
+            gh release edit "$tag" --notes-file "$notes"
+          }
+
           if [[ "$EVENT_NAME" == "workflow_run" ]]; then
             tag="$(git tag --points-at "$RELEASE_SHA" --list 'v*' --sort=-version:refname | head -n 1)"
+            if [[ -z "$tag" ]]; then
+              echo "No release tag points at $RELEASE_SHA; skipping."
+              exit 0
+            fi
+            publish_notes "$tag"
           else
-            tag="$(gh release list --limit 1 --json tagName --jq '.[0].tagName')"
+            for notes in docs/releases/v*.md; do
+              publish_notes "$(basename "$notes" .md)"
+            done
           fi
-          if [[ -z "$tag" ]]; then
-            echo "No release tag points at $RELEASE_SHA; skipping."
-            exit 0
-          fi
-          notes="docs/releases/$tag.md"
-          if [[ ! -f "$notes" ]]; then
-            echo "No curated notes found at $notes; keeping generated notes."
-            exit 0
-          fi
-          gh release edit "$tag" --notes-file "$notes"
