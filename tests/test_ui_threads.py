@@ -1,19 +1,39 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 try:
-    from PySide6.QtCore import QSettings, Qt
+    from PySide6.QtCore import QCoreApplication, QEvent, QSettings, Qt
     from PySide6.QtGui import QColor
-    from PySide6.QtWidgets import QDockWidget, QHeaderView, QMainWindow, QTableWidget
+    from PySide6.QtWidgets import QApplication, QDockWidget, QHeaderView, QMainWindow, QTableWidget
 
     from excel_git_viewer.models import CellContext
     from excel_git_viewer.ui import create_application
 except ImportError:
     pytest.skip("Qt system libraries are unavailable", allow_module_level=True)
+
+
+@pytest.fixture(autouse=True)
+def isolate_qt_state(tmp_path: Path) -> Iterator[None]:
+    QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+    QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(tmp_path))
+    settings = QSettings("ExcelGitViewer", "ExcelGitViewer")
+    settings.clear()
+    settings.sync()
+    yield
+    application = QApplication.instance()
+    if isinstance(application, QApplication):
+        for widget in application.topLevelWidgets():
+            widget.close()
+            widget.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        application.processEvents()
+    settings.clear()
+    settings.sync()
 
 
 def test_background_result_reaches_the_ui_and_releases_its_worker(tmp_path: Path) -> None:
