@@ -77,8 +77,7 @@ HKEY_CURRENT_USER\Software\ExcelGitViewer\ExcelGitViewer
 当前比较单元格值和公式文本，不比较颜色、边框、字体、图表、形状、批注、宏或外部链接
 的执行结果。Microsoft Excel 固定样本已进入自动测试；WPS 固定样本仍需补充人工验收。
 
-完整约束和验收标准见
-[开发文档](Excel_Git_Viewer_MVP_%E5%BC%80%E5%8F%91%E6%96%87%E6%A1%A3.md)。
+完整约束和验收标准见 [开发规格](docs/development-spec.md)。
 
 ## 本地开发
 

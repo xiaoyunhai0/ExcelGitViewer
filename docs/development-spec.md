@@ -1,4 +1,4 @@
-# Excel Git Viewer MVP 开发文档
+# Excel Git Viewer 开发规格
 
 > 面向需要审查策划表改动的程序开发人员，提供只读 Git 历史中的 Excel 单元格与内嵌图片差异。
 
