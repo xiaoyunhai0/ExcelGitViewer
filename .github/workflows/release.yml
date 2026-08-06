@@ -22,7 +22,7 @@ jobs:
         shell: pwsh
         run: >-
           uv run pyinstaller --noconfirm --clean --windowed
-          --name ExcelGitViewer --collect-all openpyxl
+          --name ExcelGitViewer --collect-all openpyxl --collect-all xlrd
           src/excel_git_viewer/app.py
       - name: Smoke test packaged application
         shell: pwsh

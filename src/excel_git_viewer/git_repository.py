@@ -86,6 +86,7 @@ class GitRepository:
             commit_id,
             "--",
             ":(icase,glob)**/*.xlsx",
+            ":(icase,glob)**/*.xls",
         )
         return self._parse_changed_files(output, commit_id, parent_id)
 
@@ -214,4 +215,4 @@ class GitRepository:
 
     @staticmethod
     def _is_excel_path(path: str | None) -> bool:
-        return path is not None and path.casefold().endswith(".xlsx")
+        return path is not None and path.casefold().endswith((".xlsx", ".xls"))

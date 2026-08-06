@@ -88,7 +88,7 @@ def test_modified_xlsx_can_be_read_at_parent_and_current_commit(tmp_path: Path) 
     assert GitRepository(repo).read_versions(changes[0]) == (b"old workbook", b"new workbook")
 
 
-def test_changed_file_scan_is_limited_to_xlsx_paths(tmp_path: Path) -> None:
+def test_changed_file_scan_is_limited_to_supported_excel_paths(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     run_git(repo, "init", "-b", "main")
@@ -109,6 +109,25 @@ def test_changed_file_scan_is_limited_to_xlsx_paths(tmp_path: Path) -> None:
 
     diff_call = next(call for call in calls if call[0] == "diff-tree")
     assert ":(icase,glob)**/*.xlsx" in diff_call
+    assert ":(icase,glob)**/*.xls" in diff_call
+
+
+def test_changed_file_path_filter_includes_xls_but_excludes_other_files(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run_git(repo, "init", "-b", "main")
+    run_git(repo, "config", "user.name", "Test User")
+    run_git(repo, "config", "user.email", "test@example.com")
+    (repo / "Data").mkdir()
+    (repo / "Data" / "legacy.XLS").write_bytes(b"xls workbook")
+    (repo / "Data" / "notes.txt").write_text("not excel", encoding="utf-8")
+    run_git(repo, "add", "Data")
+    run_git(repo, "commit", "-m", "add legacy workbook and notes")
+    commit_id = run_git(repo, "rev-parse", "HEAD")
+
+    changes = GitRepository(repo).list_changed_excel_files(commit_id)
+
+    assert [change.display_path for change in changes] == ["Data/legacy.XLS"]
 
 
 def test_changed_file_path_filter_keeps_xlsx_additions_and_deletions(tmp_path: Path) -> None:
@@ -168,6 +187,28 @@ def test_renamed_xlsx_reads_old_and_new_paths(tmp_path: Path) -> None:
         "Data/new.xlsx",
     )
     assert repository.read_versions(change) == (b"same workbook", b"same workbook")
+
+
+def test_renamed_xls_reads_old_and_new_paths(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run_git(repo, "init", "-b", "main")
+    run_git(repo, "config", "user.name", "Test User")
+    run_git(repo, "config", "user.email", "test@example.com")
+    commit_file(repo, "Data/old.xls", b"legacy workbook", "add legacy workbook")
+    run_git(repo, "mv", "Data/old.xls", "Data/new.xls")
+    run_git(repo, "commit", "-m", "rename legacy workbook")
+    rename_commit = run_git(repo, "rev-parse", "HEAD")
+
+    repository = GitRepository(repo)
+    [change] = repository.list_changed_excel_files(rename_commit)
+
+    assert (change.change_type, change.old_path, change.new_path) == (
+        "renamed",
+        "Data/old.xls",
+        "Data/new.xls",
+    )
+    assert repository.read_versions(change) == (b"legacy workbook", b"legacy workbook")
 
 
 def test_recent_history_returns_one_bounded_commit_list(tmp_path: Path) -> None:

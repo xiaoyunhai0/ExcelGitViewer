@@ -6,9 +6,10 @@ from datetime import date, datetime, time
 from hashlib import sha256
 from io import BytesIO
 from threading import Event, Lock
-from typing import ClassVar
+from typing import ClassVar, cast
 from zipfile import BadZipFile, ZipFile, is_zipfile
 
+import xlrd  # type: ignore[import-untyped]
 from openpyxl import load_workbook
 from openpyxl.utils.cell import coordinate_to_tuple, get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
@@ -67,6 +68,8 @@ class WorkbookDiffer:
     MAX_ZIP_ENTRIES = 10_000
     MAX_ZIP_ENTRY_BYTES = 64 * 1024 * 1024
     MAX_ZIP_TOTAL_BYTES = 256 * 1024 * 1024
+    MAX_XLS_BYTES = 128 * 1024 * 1024
+    OLE_SIGNATURE = bytes.fromhex("D0CF11E0A1B11AE1")
     SNAPSHOT_CACHE_MAX_BYTES = 384 * 1024 * 1024
     _snapshot_cache: ClassVar[OrderedDict[str, tuple[_WorkbookSnapshot, int]]] = OrderedDict()
     _snapshot_cache_bytes: ClassVar[int] = 0
@@ -150,20 +153,36 @@ class WorkbookDiffer:
 
     @staticmethod
     def _read_workbook(
-        xlsx_bytes: bytes | None,
+        workbook_bytes: bytes | None,
         cancellation: CancellationToken | None,
     ) -> _WorkbookSnapshot:
         WorkbookDiffer._raise_if_cancelled(cancellation)
-        if xlsx_bytes is None:
+        if workbook_bytes is None:
             return _WorkbookSnapshot(cells={}, sheets=frozenset())
-        cache_key = sha256(xlsx_bytes).hexdigest()
+        cache_key = sha256(workbook_bytes).hexdigest()
         cached = WorkbookDiffer._get_cached_snapshot(cache_key)
         if cached is not None:
             return cached
-        WorkbookDiffer._preflight_zip(xlsx_bytes)
+        if workbook_bytes.startswith(b"version https://git-lfs.github.com/spec/v1"):
+            raise WorkbookReadError(
+                "The Git object is a Git LFS pointer; pull the LFS object before reviewing it"
+            )
+        if workbook_bytes.startswith(WorkbookDiffer.OLE_SIGNATURE):
+            snapshot = WorkbookDiffer._read_xls_workbook(workbook_bytes, cancellation)
+        else:
+            snapshot = WorkbookDiffer._read_xlsx_workbook(workbook_bytes, cancellation)
+        WorkbookDiffer._store_cached_snapshot(cache_key, snapshot)
+        return snapshot
+
+    @staticmethod
+    def _read_xlsx_workbook(
+        workbook_bytes: bytes,
+        cancellation: CancellationToken | None,
+    ) -> _WorkbookSnapshot:
+        WorkbookDiffer._preflight_zip(workbook_bytes)
         try:
             workbook = load_workbook(
-                BytesIO(xlsx_bytes),
+                BytesIO(workbook_bytes),
                 read_only=False,
                 data_only=False,
                 keep_links=False,
@@ -186,11 +205,90 @@ class WorkbookDiffer:
                                 hidden_row=bool(sheet.row_dimensions[cell.row].hidden),
                                 hidden_column=cell.column in hidden_columns,
                             )
-            snapshot = _WorkbookSnapshot(cells=cells, sheets=frozenset(workbook.sheetnames))
-            WorkbookDiffer._store_cached_snapshot(cache_key, snapshot)
-            return snapshot
+            return _WorkbookSnapshot(cells=cells, sheets=frozenset(workbook.sheetnames))
         finally:
             workbook.close()
+
+    @staticmethod
+    def _read_xls_workbook(
+        workbook_bytes: bytes,
+        cancellation: CancellationToken | None,
+    ) -> _WorkbookSnapshot:
+        if len(workbook_bytes) > WorkbookDiffer.MAX_XLS_BYTES:
+            raise WorkbookReadError("The xls workbook exceeds the safety limit")
+        try:
+            workbook = xlrd.open_workbook(
+                file_contents=workbook_bytes,
+                formatting_info=True,
+                on_demand=True,
+            )
+        except Exception as error:
+            raise WorkbookReadError(
+                "The file is not a valid .xls workbook or is encrypted"
+            ) from error
+        try:
+            cells: dict[tuple[str, str], _CellSnapshot] = {}
+            for sheet in workbook.sheets():
+                WorkbookDiffer._raise_if_cancelled(cancellation)
+                hidden_sheet = sheet.visibility != 0
+                for row_index in range(sheet.nrows):
+                    WorkbookDiffer._raise_if_cancelled(cancellation)
+                    row_info = sheet.rowinfo_map.get(row_index)
+                    hidden_row = bool(row_info and row_info.hidden)
+                    for column_index in range(sheet.ncols):
+                        cell = sheet.cell(row_index, column_index)
+                        normalized = WorkbookDiffer._normalize_xls_cell(
+                            cell.ctype,
+                            cell.value,
+                            workbook.datemode,
+                        )
+                        if normalized is None:
+                            continue
+                        value, data_type = normalized
+                        column_info = sheet.colinfo_map.get(column_index)
+                        cells[
+                            (
+                                sheet.name,
+                                WorkbookDiffer._coordinate(row_index + 1, column_index + 1),
+                            )
+                        ] = _CellSnapshot(
+                            value=value,
+                            data_type=data_type,
+                            hidden_sheet=hidden_sheet,
+                            hidden_row=hidden_row,
+                            hidden_column=bool(column_info and column_info.hidden),
+                        )
+            return _WorkbookSnapshot(
+                cells=cells,
+                sheets=frozenset(workbook.sheet_names()),
+            )
+        finally:
+            workbook.release_resources()
+
+    @staticmethod
+    def _normalize_xls_cell(
+        cell_type: int,
+        value: object,
+        datemode: int,
+    ) -> tuple[str, str] | None:
+        if cell_type in {xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK}:
+            return None
+        if cell_type == xlrd.XL_CELL_TEXT:
+            return str(value), "text"
+        if cell_type == xlrd.XL_CELL_NUMBER:
+            number = float(cast(float | int, value))
+            return (str(int(number)) if number.is_integer() else str(number)), "number"
+        if cell_type == xlrd.XL_CELL_DATE:
+            try:
+                return xlrd.xldate_as_datetime(value, datemode).isoformat(), "date"
+            except Exception as error:
+                raise WorkbookReadError("The xls workbook contains an invalid date") from error
+        if cell_type == xlrd.XL_CELL_BOOLEAN:
+            return ("true" if bool(value) else "false"), "boolean"
+        if cell_type == xlrd.XL_CELL_ERROR:
+            error_code = int(cast(float | int, value))
+            return xlrd.error_text_from_code.get(error_code, f"Excel error {error_code}"), "error"
+        return str(value), f"xls:{cell_type}"
 
     @classmethod
     def clear_snapshot_cache(cls) -> None:
@@ -236,16 +334,8 @@ class WorkbookDiffer:
         return estimated_bytes
 
     @staticmethod
-    def _preflight_zip(xlsx_bytes: bytes) -> None:
-        if xlsx_bytes.startswith(b"version https://git-lfs.github.com/spec/v1"):
-            raise WorkbookReadError(
-                "The Git object is a Git LFS pointer; pull the LFS object before reviewing it"
-            )
-        if xlsx_bytes.startswith(bytes.fromhex("D0CF11E0A1B11AE1")):
-            raise WorkbookReadError(
-                "Encrypted or legacy Office Compound File workbooks are not supported"
-            )
-        stream = BytesIO(xlsx_bytes)
+    def _preflight_zip(workbook_bytes: bytes) -> None:
+        stream = BytesIO(workbook_bytes)
         if not is_zipfile(stream):
             raise WorkbookReadError("The file is not a valid xlsx ZIP package")
         try:

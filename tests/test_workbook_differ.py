@@ -5,6 +5,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
+import xlwt  # type: ignore[import-untyped]
 from openpyxl import Workbook
 
 import excel_git_viewer.workbook_differ as workbook_differ_module
@@ -41,6 +42,31 @@ def workbook_bytes(
     output = BytesIO()
     workbook.save(output)
     workbook.close()
+    return output.getvalue()
+
+
+def xls_workbook_bytes(
+    cells: dict[str, object],
+    *,
+    hidden_sheet: bool = False,
+    hidden_rows: set[int] | None = None,
+    hidden_columns: set[int] | None = None,
+) -> bytes:
+    workbook = xlwt.Workbook()
+    sheet = workbook.add_sheet("Items")
+    if hidden_sheet:
+        sheet.visibility = 1
+    date_style = xlwt.easyxf(num_format_str="YYYY-MM-DD")
+    for coordinate, value in cells.items():
+        row, column = workbook_differ_module.coordinate_to_tuple(coordinate)
+        style = date_style if isinstance(value, date) else xlwt.Style.default_style
+        sheet.write(row - 1, column - 1, value, style)
+    for row in hidden_rows or set():
+        sheet.row(row - 1).hidden = True
+    for column in hidden_columns or set():
+        sheet.col(column - 1).hidden = True
+    output = BytesIO()
+    workbook.save(output)
     return output.getvalue()
 
 
@@ -165,6 +191,43 @@ def test_dates_and_booleans_use_stable_normalized_values() -> None:
     ]
 
 
+def test_xls_cell_changes_use_the_same_normalized_diff_model() -> None:
+    old_workbook = xls_workbook_bytes(
+        {"A1": "Potion", "B2": 10, "C2": date(2026, 8, 4), "D2": True}
+    )
+    new_workbook = xls_workbook_bytes(
+        {"A1": "Large Potion", "B2": 12, "C2": date(2026, 8, 5), "D2": False},
+        hidden_rows={2},
+        hidden_columns={2},
+    )
+
+    changes = WorkbookDiffer().compare(old_workbook, new_workbook).cell_changes
+
+    assert [
+        (change.coordinate, change.old_value, change.new_value, change.new_data_type)
+        for change in changes
+    ] == [
+        ("A1", "Potion", "Large Potion", "text"),
+        ("B2", "10", "12", "number"),
+        ("C2", "2026-08-04T00:00:00", "2026-08-05T00:00:00", "date"),
+        ("D2", "true", "false", "boolean"),
+    ]
+    assert changes[1].hidden_row is True
+    assert changes[1].hidden_column is True
+
+
+def test_xls_added_and_deleted_cells_and_sheets_are_reported() -> None:
+    old_workbook = xls_workbook_bytes({"A1": "removed"})
+    new_workbook = xls_workbook_bytes({"B2": "added"})
+
+    result = WorkbookDiffer().compare(old_workbook, new_workbook)
+
+    assert [(change.coordinate, change.change_type) for change in result.cell_changes] == [
+        ("A1", "deleted"),
+        ("B2", "added"),
+    ]
+
+
 def test_numeric_value_changed_to_equal_text_is_still_reported() -> None:
     old_workbook = workbook_bytes({"A1": 1})
     new_workbook = workbook_bytes({"A1": "1"})
@@ -222,8 +285,8 @@ def test_git_lfs_pointer_has_a_specific_diagnostic() -> None:
         WorkbookDiffer().compare(pointer, None)
 
 
-def test_encrypted_office_container_has_a_specific_diagnostic() -> None:
+def test_invalid_or_encrypted_legacy_container_has_a_specific_diagnostic() -> None:
     encrypted_container = bytes.fromhex("D0CF11E0A1B11AE1") + b"encrypted payload"
 
-    with pytest.raises(WorkbookReadError, match="Encrypted"):
+    with pytest.raises(WorkbookReadError, match="valid .xls|encrypted"):
         WorkbookDiffer().compare(encrypted_container, None)

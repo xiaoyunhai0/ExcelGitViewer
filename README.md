@@ -13,8 +13,9 @@
   </p>
 </div>
 
-Excel Git Viewer is a read-only desktop tool for developers reviewing `.xlsx` changes in local Git
-history. It shows what changed inside a workbook instead of stopping at “binary file modified.”
+Excel Git Viewer is a read-only desktop tool for developers reviewing `.xlsx` and `.xls` changes
+in local Git history. It shows what changed inside a workbook instead of stopping at “binary file
+modified.”
 
 > [!NOTE]
 > The current desktop interface uses Simplified Chinese. The documentation is available in English
@@ -52,13 +53,15 @@ local cache. Use **Refresh** to force a new Git scan.
 | Area | Current behavior |
 |---|---|
 | Commits | Reads up to the latest 200 non-merge commits from the current branch. |
-| Excel files | Detects added, modified, deleted, and renamed `.xlsx` files. |
+| Excel files | Detects added, modified, deleted, and renamed `.xlsx` and `.xls` files. |
 | Worksheets | Reports added, deleted, and changed worksheets. |
-| Cells | Shows added, deleted, and modified values plus formula text. |
+| Cells | Shows value changes, `.xlsx` formula text, and `.xls` saved formula results. |
 | Context | Highlights the old cell in red, the new cell in green, and matching headers in amber. |
 | Warnings | Flags hidden sheets, rows, columns, and invisible whitespace. |
 
 Embedded image differences are planned for a later milestone and are not implemented yet.
+For legacy `.xls` workbooks, formulas are compared by their last saved result because the format
+reader does not expose formula source text. `.xlsx` workbooks continue to compare formula text.
 
 ## Workspace
 
@@ -80,10 +83,10 @@ Embedded image differences are planned for a later milestone and are not impleme
 
 | Supported now | Outside the current scope |
 |---|---|
-| `.xlsx` files from non-merge commits | Merge commits and arbitrary commit pairs |
+| `.xlsx` and `.xls` files from non-merge commits | Merge commits and arbitrary commit pairs |
 | Cell values and formula text | Formatting, charts, shapes, and comments |
 | Root commits compared with an empty workbook | Working-tree and uncommitted changes |
-| Microsoft Excel automated fixture | Legacy `.xls` and completed WPS acceptance |
+| Microsoft Excel `.xlsx`/`.xls` compatibility | Completed WPS acceptance |
 
 See the [development specification](docs/development-spec.md) for complete constraints and acceptance
 criteria.
