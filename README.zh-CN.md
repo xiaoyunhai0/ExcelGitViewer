@@ -1,93 +1,109 @@
-# Excel Git Viewer
+<div align="center">
+  <h1>Excel Git Viewer</h1>
+  <p><strong>在 Git 中审查 Excel 改动，直接定位到具体单元格。</strong></p>
+  <p><a href="README.md">English</a> | <strong>简体中文</strong></p>
+  <p>
+    <a href="https://github.com/xiaoyunhai0/ExcelGitViewer/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/xiaoyunhai0/ExcelGitViewer/actions/workflows/ci.yml/badge.svg"></a>
+    <a href="https://github.com/xiaoyunhai0/ExcelGitViewer/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/xiaoyunhai0/ExcelGitViewer"></a>
+    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/xiaoyunhai0/ExcelGitViewer"></a>
+  </p>
+  <p>
+    <a href="https://github.com/xiaoyunhai0/ExcelGitViewer/releases/latest"><strong>下载 Windows 版本</strong></a>
+    · <a href="docs/development-spec.md">开发规格</a>
+  </p>
+</div>
 
-<p align="center">
-  <a href="README.md">English</a> | <strong>简体中文</strong>
-</p>
+Excel Git Viewer 是面向程序开发人员的只读桌面工具，用于审查本地 Git 历史中的 `.xlsx`
+改动。它不只告诉你“二进制文件发生变化”，还会显示工作簿内部具体改了什么。
 
-[![CI](https://github.com/xiaoyunhai0/ExcelGitViewer/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaoyunhai0/ExcelGitViewer/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/xiaoyunhai0/ExcelGitViewer)](https://github.com/xiaoyunhai0/ExcelGitViewer/releases/latest)
-[![License](https://img.shields.io/github/license/xiaoyunhai0/ExcelGitViewer)](LICENSE)
+## 核心能力
 
-Excel Git Viewer 是面向程序开发人员的 Windows 只读审查工具。它直接读取本地 Git
-历史，展示策划在普通提交中对 `.xlsx` 工作簿造成的单元格变化。
+| Git 提交审查 | 单元格证据 | 自由工作区 |
+|---|---|---|
+| 浏览最近 200 条普通提交，不检出文件、不切换分支。 | 对比新旧值、公式、坐标和周边上下文。 | 六个面板可排列、组合页签、缩放或浮动，重启后恢复。 |
 
-工具不会切换分支、检出文件或修改仓库，也不要求项目使用 Git LFS。它用于补足 Git
-客户端只能看到“Excel 文件已变化”，却看不到具体改动位置的问题。
+| 重复审查更快 | 全程只读 | 布局自动保存 |
+|---|---|---|
+| 复用持久化提交记录和进程内工作簿快照缓存。 | 不修改仓库，不执行公式、宏或外部链接。 | 所有表格列宽可调整、双击自动适配，也可一键恢复完整布局。 |
 
-## 下载与使用
+## 快速开始
 
-从 [GitHub Releases](https://github.com/xiaoyunhai0/ExcelGitViewer/releases/latest)
-下载最新的 `ExcelGitViewer-*-windows-x64.zip`。解压完整目录后运行
-`ExcelGitViewer.exe`，无需安装 Python。
+**运行条件：** Windows 10/11 x64、系统 `PATH` 中可以运行 `git`，并且仓库已拉取到本地。
+使用打包版本不需要安装 Python，也不要求项目使用 Git LFS。
 
-运行条件：
+1. 从 [GitHub Releases](https://github.com/xiaoyunhai0/ExcelGitViewer/releases/latest)
+   下载并解压最新的 `ExcelGitViewer-*-windows-x64.zip`。
+2. 运行 `ExcelGitViewer.exe`，选择本地 Git 仓库。
+3. 选择提交和发生变化的 Excel 文件，检查具体差异。
 
-- Windows 10/11 x64；
-- 系统 `PATH` 中可以直接运行 `git`；
-- 目标仓库已由 Git、Sourcetree 或其他客户端拉取到本地。
-
-基本流程：
-
-1. 点击“选择仓库”，选择本地 Git 项目目录。
-2. 在提交表中选择一次普通提交。
-3. 选择该提交中发生变化的 Excel 文件。
-4. 在差异表和新旧上下文中检查具体改动。
+```text
+仓库 -> 提交 -> 变化的工作簿 -> 单元格差异 -> 修改前后上下文
+```
 
 程序会自动恢复上次仓库。仓库 HEAD 未变化时，提交记录直接使用本地缓存；点击“刷新”
 可以强制重新读取 Git 历史。
 
-## 审查能力
+## 审查内容
 
-- 以紧凑表格显示提交哈希、说明、作者、时间和发生变化的 Excel 文件。
-- 识别 `.xlsx` 文件的新增、修改、删除和重命名。
-- 显示工作表变化、单元格新增、删除、修改及新旧值。
-- 比较公式文本但不执行公式，保留并提示空格、制表符和换行。
-- 标记隐藏工作表、隐藏行和隐藏列中的变化。
-- 在新旧上下文中定位当前改动格：旧值为红色，新值为绿色，行列标题为黄色。
-- 六个审查面板可拖动停靠、重新排列、组合为页签、缩放或浮动显示。
-- 重启后恢复面板布局，并提供“恢复默认布局”。
-- 所有表格列宽均可拖动，双击列边界自动适配内容。
-- 自动保存提交、文件、工作表和单元格差异表的列宽。
+| 范围 | 当前行为 |
+|---|---|
+| 提交 | 读取当前分支最近 200 条普通提交。 |
+| Excel 文件 | 识别 `.xlsx` 文件的新增、修改、删除和重命名。 |
+| 工作表 | 报告工作表新增、删除和修改。 |
+| 单元格 | 显示值和公式文本的新增、删除与修改。 |
+| 上下文 | 旧值标红、新值标绿，对应行列标题标黄。 |
+| 风险提示 | 标记隐藏工作表、隐藏行列和不可见空白。 |
 
-当前里程碑完成了 Git 提交浏览与单元格差异。图片新增、删除、替换、移动、缩放和预览
-属于后续里程碑，尚未实现。
+内嵌图片差异属于后续里程碑，目前尚未实现。
+
+## 工作区
+
+- 拖动任意面板标题，可停靠到工作区上、下、左、右。
+- 面板可以组合成页签，也可以拖出程序成为浮动窗口。
+- 面板边界和所有表格列宽均可调整，双击列边界自动适配内容。
+- 启动时恢复上次工作区，也可通过“恢复默认布局”回到推荐排列。
 
 ## 性能机制
 
-- 只读取当前分支最近 200 条普通提交。
-- 加载历史时不扫描每条提交的文件路径；选中提交后才查询 `.xlsx` 变化。
-- 使用约 384 MB 上限的进程内 LRU 工作簿快照缓存。
-- 工作簿在后台解析；切换选择或取消后，过期结果不会写回界面。
-- 提交记录持久化到磁盘，仓库 HEAD 变化时自动失效。
+| 机制 | 作用 |
+|---|---|
+| 有界提交记录 | 最多加载 200 条，选中提交后才查询变化文件路径。 |
+| 持久化历史缓存 | 仓库 HEAD 未变化时直接复用提交记录。 |
+| 384 MB 快照缓存 | 加速同一次运行中的重复和相邻工作簿比较。 |
+| 后台任务 | 避免界面冻结，并在切换选择后丢弃过期结果。 |
 
-## 本地数据与重置
+## 支持范围
 
-Windows 提交历史缓存位于：
+| 当前支持 | 暂不支持 |
+|---|---|
+| 普通提交中的 `.xlsx` 文件 | 合并提交和任意两次提交对比 |
+| 单元格值和公式文本 | 格式、图表、形状和批注 |
+| 根提交与空工作簿比较 | 工作区和未提交改动 |
+| Microsoft Excel 自动化样本 | `.xls` 和已完成的 WPS 验收 |
+
+完整约束和验收标准见 [开发规格](docs/development-spec.md)。
+
+<details>
+<summary><strong>本地数据与完全重置</strong></summary>
+
+提交历史缓存：
 
 ```text
 %LOCALAPPDATA%\ExcelGitViewer\history
 ```
 
-上次仓库、停靠布局和表格列宽由 Qt 保存在：
+上次仓库、停靠布局和表格列宽：
 
 ```text
 HKEY_CURRENT_USER\Software\ExcelGitViewer\ExcelGitViewer
 ```
 
-通常不需要手动清理。历史缓存损坏或与当前 HEAD 不匹配时，程序会自动重新读取 Git。
-需要完全重置时，可在退出程序后删除上述缓存目录和注册表项。
+无效的历史缓存会自动重建。需要完全重置时，请先退出程序，再删除上述目录和注册表项。
 
-## 支持范围
+</details>
 
-工具只处理 `.xlsx`，只比较普通提交与其唯一父提交。根提交按空工作簿处理，合并提交、
-未提交改动、任意两次提交对比和 `.xls` 均不在当前范围内。
-
-当前比较单元格值和公式文本，不比较颜色、边框、字体、图表、形状、批注、宏或外部链接
-的执行结果。Microsoft Excel 固定样本已进入自动测试；WPS 固定样本和人工验收仍需补充。
-
-完整约束和验收标准见 [开发规格](docs/development-spec.md)。
-
-## 本地开发
+<details>
+<summary><strong>本地开发与发布</strong></summary>
 
 项目使用 Python 3.12 和 [uv](https://docs.astral.sh/uv/)：
 
@@ -100,23 +116,16 @@ uv run pytest
 uv run excel-git-viewer
 ```
 
-Linux 缺少 Qt 系统动态库时，窗口测试会跳过；核心 Git 和 Excel 测试仍可运行。Windows
-CI 会运行真实 Qt 窗口检查。
+推送和 Pull Request 会在 Linux、Windows 上运行检查。推送 `v*` 标签后，工作流会构建并
+测试 Windows EXE，然后发布 ZIP 和 SHA-256 文件。
 
-测试工作簿必须只包含合成数据，并统一放在 `tests/fixtures/excel/`。不要提交真实项目的
-策划表、导出的敏感数据或其他业务文件。
+测试工作簿必须只包含合成数据，并统一放在 `tests/fixtures/excel/`。
 
-## 发布流程
-
-推送到 `main` 或创建 Pull Request 时，GitHub Actions 会在 Linux 和 Windows 上运行
-Ruff、mypy 和 pytest，并在 Windows 上检查真实 Qt 窗口。
-
-推送 `v*` 标签后，Windows Runner 使用 PyInstaller 构建目录模式 EXE，运行打包后测试，
-生成 ZIP 和 SHA-256 文件，并发布到 GitHub Releases。
+</details>
 
 ## 安全与许可
 
-程序只通过 Git 对象读取工作簿，不执行宏、公式或外部链接。工作簿打开前会检查 ZIP
-条目数量和解压尺寸。
+程序直接读取 Git 对象中的工作簿字节，并在打开前检查 ZIP 条目数量和解压尺寸。程序
+不会执行宏、公式或外部链接。
 
-项目使用 [MIT License](LICENSE)。
+Excel Git Viewer 使用 [MIT License](LICENSE)。

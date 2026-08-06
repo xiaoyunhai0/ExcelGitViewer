@@ -1,98 +1,115 @@
-# Excel Git Viewer
+<div align="center">
+  <h1>Excel Git Viewer</h1>
+  <p><strong>Review Excel changes in Git, down to the exact cell.</strong></p>
+  <p><strong>English</strong> | <a href="README.zh-CN.md">简体中文</a></p>
+  <p>
+    <a href="https://github.com/xiaoyunhai0/ExcelGitViewer/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/xiaoyunhai0/ExcelGitViewer/actions/workflows/ci.yml/badge.svg"></a>
+    <a href="https://github.com/xiaoyunhai0/ExcelGitViewer/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/xiaoyunhai0/ExcelGitViewer"></a>
+    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/xiaoyunhai0/ExcelGitViewer"></a>
+  </p>
+  <p>
+    <a href="https://github.com/xiaoyunhai0/ExcelGitViewer/releases/latest"><strong>Download for Windows</strong></a>
+    · <a href="docs/development-spec.md">Development specification</a>
+  </p>
+</div>
 
-<p align="center">
-  <strong>English</strong> | <a href="README.zh-CN.md">简体中文</a>
-</p>
+Excel Git Viewer is a read-only desktop tool for developers reviewing `.xlsx` changes in local Git
+history. It shows what changed inside a workbook instead of stopping at “binary file modified.”
 
-[![CI](https://github.com/xiaoyunhai0/ExcelGitViewer/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaoyunhai0/ExcelGitViewer/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/xiaoyunhai0/ExcelGitViewer)](https://github.com/xiaoyunhai0/ExcelGitViewer/releases/latest)
-[![License](https://img.shields.io/github/license/xiaoyunhai0/ExcelGitViewer)](LICENSE)
+> [!NOTE]
+> The current desktop interface uses Simplified Chinese. The documentation is available in English
+> and Chinese.
 
-Excel Git Viewer is a read-only Windows review tool for developers. It reads local Git history and
-shows the cell-level changes made to `.xlsx` workbooks in non-merge commits.
+## At a Glance
 
-The application never checks out files, switches branches, or modifies the repository. Git LFS is
-not required. It fills the gap between seeing that an Excel file changed and knowing exactly what
-changed inside it.
+| Git-aware review | Cell-level evidence | Flexible workspace |
+|---|---|---|
+| Browse up to 200 non-merge commits without checkout or branch changes. | Compare old/new values, formulas, coordinates, and nearby context. | Rearrange, tab, resize, or float six panels; restore them after restart. |
 
-## Download and Use
+| Fast repeat reviews | Read-only by design | Your layout, remembered |
+|---|---|---|
+| Reuse commit metadata and an in-memory workbook snapshot cache. | Never modify Git or execute formulas, macros, or external links. | Resize columns, auto-fit on double-click, or reset the workspace. |
 
-Download the latest `ExcelGitViewer-*-windows-x64.zip` from
-[GitHub Releases](https://github.com/xiaoyunhai0/ExcelGitViewer/releases/latest). Extract the entire
-archive and run `ExcelGitViewer.exe`. Python is not required.
+## Quick Start
 
-Requirements:
+**Requirements:** Windows 10/11 x64, `git` on `PATH`, and a local Git repository. Python and Git LFS
+are not required for the packaged application.
 
-- Windows 10 or 11, x64;
-- `git` available on the system `PATH`;
-- a local repository cloned with Git, Sourcetree, or another Git client;
-- the current desktop interface uses Simplified Chinese.
+1. Download and extract the latest `ExcelGitViewer-*-windows-x64.zip` from
+   [GitHub Releases](https://github.com/xiaoyunhai0/ExcelGitViewer/releases/latest).
+2. Run `ExcelGitViewer.exe` and select a local repository.
+3. Select a commit, choose a changed Excel file, and inspect its differences.
 
-Basic workflow:
+```text
+Repository -> Commit -> Changed workbook -> Cell difference -> Before/after context
+```
 
-1. Select a local Git repository.
-2. Select a non-merge commit from the commit table.
-3. Select an Excel file changed by that commit.
-4. Review its cell differences and the surrounding before/after context.
+The last repository opens automatically. If its HEAD is unchanged, commit history loads from the
+local cache. Use **Refresh** to force a new Git scan.
 
-The application automatically reopens the last repository. When its HEAD is unchanged, commit
-history is restored from the local cache. Use **Refresh** to force a new Git history scan.
+## What It Reviews
 
-## Review Features
+| Area | Current behavior |
+|---|---|
+| Commits | Reads up to the latest 200 non-merge commits from the current branch. |
+| Excel files | Detects added, modified, deleted, and renamed `.xlsx` files. |
+| Worksheets | Reports added, deleted, and changed worksheets. |
+| Cells | Shows added, deleted, and modified values plus formula text. |
+| Context | Highlights the old cell in red, the new cell in green, and matching headers in amber. |
+| Warnings | Flags hidden sheets, rows, columns, and invisible whitespace. |
 
-- Displays commit hash, subject, author, time, and changed Excel files in compact tables.
-- Detects added, modified, deleted, and renamed `.xlsx` files.
-- Shows worksheet changes and added, deleted, or modified cell values.
-- Compares formula text without executing formulas.
-- Preserves and flags spaces, tabs, newlines, hidden worksheets, hidden rows, and hidden columns.
-- Highlights the selected old cell in red, the new cell in green, and its row and column in amber.
-- Provides six dockable panels that can be rearranged, tabbed, resized, or floated.
-- Restores the panel layout after restart and provides a **Reset Layout** action.
-- Allows every table column to be resized; double-clicking a divider fits it to its content.
-- Persists column widths for the commit, file, worksheet, and cell-difference tables.
+Embedded image differences are planned for a later milestone and are not implemented yet.
 
-The current milestone covers Git commit browsing and cell differences. Embedded image additions,
-deletions, replacements, movement, resizing, and previews are planned but not implemented.
+## Workspace
+
+- Drag any panel title to dock it on the top, bottom, left, or right.
+- Combine panels into tabs or drag them outside the application as floating windows.
+- Resize panel boundaries and every table column; double-click a divider to fit its content.
+- Restore the previous workspace on startup or use **Reset Layout** to return to the default.
 
 ## Performance
 
-- Reads at most the latest 200 non-merge commits from the current branch.
-- Does not scan changed paths while loading history; `.xlsx` paths are queried after commit selection.
-- Uses an in-process LRU workbook snapshot cache with an approximate 384 MB limit.
-- Parses workbooks in background tasks and discards stale results after selection changes.
-- Persists commit metadata to disk and invalidates it automatically when the repository HEAD changes.
+| Mechanism | Benefit |
+|---|---|
+| Bounded history | Loads at most 200 commit records and delays changed-path queries until selection. |
+| Persistent history cache | Reuses commit metadata while the repository HEAD is unchanged. |
+| 384 MB snapshot cache | Speeds up repeated and adjacent workbook comparisons within one session. |
+| Background tasks | Keeps the interface responsive and discards stale results after selection changes. |
 
-## Local Data and Reset
+## Scope
 
-On Windows, the commit history cache is stored at:
+| Supported now | Outside the current scope |
+|---|---|
+| `.xlsx` files from non-merge commits | Merge commits and arbitrary commit pairs |
+| Cell values and formula text | Formatting, charts, shapes, and comments |
+| Root commits compared with an empty workbook | Working-tree and uncommitted changes |
+| Microsoft Excel automated fixture | Legacy `.xls` and completed WPS acceptance |
+
+See the [development specification](docs/development-spec.md) for complete constraints and acceptance
+criteria.
+
+<details>
+<summary><strong>Local data and full reset</strong></summary>
+
+Commit history cache:
 
 ```text
 %LOCALAPPDATA%\ExcelGitViewer\history
 ```
 
-The last repository, dock layout, and table widths are stored by Qt under:
+Last repository, dock layout, and table widths:
 
 ```text
 HKEY_CURRENT_USER\Software\ExcelGitViewer\ExcelGitViewer
 ```
 
-Manual cleanup is normally unnecessary. Invalid or stale history caches are rebuilt automatically.
-For a complete reset, close the application and remove the cache directory and registry key above.
+Invalid history caches are rebuilt automatically. For a complete reset, close the application and
+remove the directory and registry key above.
 
-## Supported Scope
+</details>
 
-The application handles `.xlsx` files and compares each non-merge commit with its single parent. Root
-commits use an empty workbook as the old version. Merge commits, working-tree changes, arbitrary
-commit pairs, and legacy `.xls` files are outside the current scope.
-
-It compares cell values and formula text. Formatting, charts, shapes, comments, macros, and evaluated
-external links are not compared. A Microsoft Excel fixture is covered by automated tests; a fixed WPS
-fixture and manual WPS acceptance are still pending.
-
-See the [development specification](docs/development-spec.md) for complete constraints and acceptance
-criteria.
-
-## Development
+<details>
+<summary><strong>Development and release</strong></summary>
 
 The project uses Python 3.12 and [uv](https://docs.astral.sh/uv/):
 
@@ -105,23 +122,16 @@ uv run pytest
 uv run excel-git-viewer
 ```
 
-Window tests are skipped when the Linux host does not provide the required Qt system libraries. The
-Windows CI job runs the real Qt window checks.
+Pushes and pull requests run checks on Linux and Windows. A `v*` tag builds and tests the packaged
+Windows EXE, then publishes a ZIP archive and SHA-256 checksum.
 
-Workbook fixtures must contain synthetic data only and belong under `tests/fixtures/excel/`. Never
-commit production workbooks, exported business data, or other sensitive files.
+Test workbooks must contain synthetic data only and belong under `tests/fixtures/excel/`.
 
-## Release Process
-
-Pushes to `main` and pull requests run Ruff, mypy, and pytest on Linux and Windows. Windows also runs
-a real Qt window smoke test.
-
-Pushing a `v*` tag builds the directory-mode executable with PyInstaller, tests the packaged EXE, and
-publishes a ZIP archive with its SHA-256 checksum to GitHub Releases.
+</details>
 
 ## Security and License
 
-Excel Git Viewer reads workbook bytes from Git objects without executing macros, formulas, or external
-links. ZIP entry counts and extracted sizes are checked before a workbook is opened.
+Workbook bytes are read directly from Git objects. ZIP entry counts and extracted sizes are checked
+before opening a workbook. The application never executes macros, formulas, or external links.
 
-Licensed under the [MIT License](LICENSE).
+Excel Git Viewer is available under the [MIT License](LICENSE).
