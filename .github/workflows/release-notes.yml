@@ -1,0 +1,36 @@
+name: Publish Release Notes
+
+on:
+  workflow_run:
+    workflows: ["Release Windows x64"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-notes:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: Update release description
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          tag="$(git tag --points-at "$RELEASE_SHA" --list 'v*' --sort=-version:refname | head -n 1)"
+          if [[ -z "$tag" ]]; then
+            echo "No release tag points at $RELEASE_SHA; skipping."
+            exit 0
+          fi
+          notes="docs/releases/$tag.md"
+          if [[ ! -f "$notes" ]]; then
+            echo "No curated notes found at $notes; keeping generated notes."
+            exit 0
+          fi
+          gh release edit "$tag" --notes-file "$notes"

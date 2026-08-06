@@ -41,8 +41,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
-        run: >-
-          gh release create "${{ github.ref_name }}"
-          "${{ steps.package.outputs.asset }}"
-          "${{ steps.package.outputs.asset }}.sha256"
-          --generate-notes
+        run: |
+          $version = "${{ github.ref_name }}"
+          $asset = "${{ steps.package.outputs.asset }}"
+          $notes = "docs/releases/$version.md"
+          if (Test-Path $notes) {
+            gh release create $version $asset "$asset.sha256" --notes-file $notes
+          } else {
+            gh release create $version $asset "$asset.sha256" --generate-notes
+          }
