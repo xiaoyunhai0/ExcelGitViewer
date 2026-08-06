@@ -90,3 +90,19 @@ def test_background_workers_are_retained_until_their_ui_callback() -> None:
     )
     assert len(self_calls(start_method, "_retain_worker")) == 1
     assert all(len(self_calls(method, "_release_worker")) == 1 for method in terminal_methods)
+
+
+def test_workspace_uses_tables_and_nested_resizable_splitters() -> None:
+    build_method = load_main_window_method("_build_ui")
+    attributes = {
+        node.attr
+        for node in ast.walk(build_method)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "self"
+    }
+
+    assert {"commit_table", "file_table"} <= attributes
+    assert {"main_splitter", "details_splitter", "context_splitter"} <= attributes
+    assert "commit_list" not in attributes
+    assert "file_list" not in attributes

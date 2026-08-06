@@ -4,7 +4,9 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Literal
 
-from excel_git_viewer.models import WorkbookDiff
+from openpyxl.utils.cell import coordinate_to_tuple
+
+from excel_git_viewer.models import CellContext, WorkbookDiff
 
 SheetStatus = Literal["added", "deleted", "modified"]
 
@@ -14,6 +16,17 @@ class SheetSummary:
     sheet_name: str
     status: SheetStatus
     cell_change_count: int
+
+
+def context_target_index(context: CellContext, coordinate: str) -> tuple[int, int] | None:
+    row, column = coordinate_to_tuple(coordinate)
+    row_index = row - context.start_row
+    column_index = column - context.start_column
+    row_count = len(context.values)
+    column_count = len(context.values[0]) if context.values else 0
+    if 0 <= row_index < row_count and 0 <= column_index < column_count:
+        return row_index, column_index
+    return None
 
 
 def summarize_sheets(workbook_diff: WorkbookDiff) -> tuple[SheetSummary, ...]:
