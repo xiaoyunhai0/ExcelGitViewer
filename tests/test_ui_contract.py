@@ -103,6 +103,11 @@ def test_workspace_uses_tables_and_nested_resizable_splitters() -> None:
     }
 
     assert {"commit_table", "file_table"} <= attributes
-    assert {"main_splitter", "details_splitter", "context_splitter"} <= attributes
+    assert {
+        "main_splitter",
+        "navigation_splitter",
+        "details_splitter",
+        "context_splitter",
+    } <= attributes
     assert "commit_list" not in attributes
     assert "file_list" not in attributes

@@ -102,13 +102,15 @@ QTableWidget {
 }
 QTableWidget::item { padding: 5px 7px; }
 QHeaderView::section {
-    background: #eef2f6;
-    color: #475569;
     border: 0;
     border-right: 1px solid #d8dee8;
     border-bottom: 1px solid #cbd5e1;
     padding: 6px 7px;
     font-weight: 700;
+}
+QTableWidget#dataTable QHeaderView::section {
+    background: #eef2f6;
+    color: #475569;
 }
 QSplitter::handle { background: #d8dee8; }
 QSplitter::handle:hover { background: #94a3b8; }
@@ -215,6 +217,11 @@ class MainWindow(QMainWindow):
 
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setHandleWidth(6)
+
+        self.navigation_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.navigation_splitter.setChildrenCollapsible(False)
+        self.navigation_splitter.setHandleWidth(6)
 
         self.commit_table = self._data_table(4)
         self.commit_table.setHorizontalHeaderLabels(["提交", "说明", "作者", "时间"])
@@ -227,7 +234,7 @@ class MainWindow(QMainWindow):
         commit_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.commit_table.setColumnWidth(0, 82)
         self.commit_table.currentCellChanged.connect(self._select_commit)
-        self.main_splitter.addWidget(self._panel("提交记录", self.commit_table))
+        self.navigation_splitter.addWidget(self._panel("提交记录", self.commit_table))
 
         self.file_table = self._data_table(2)
         self.file_table.setHorizontalHeaderLabels(["状态", "Excel 文件"])
@@ -238,7 +245,9 @@ class MainWindow(QMainWindow):
         file_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.file_table.setColumnWidth(0, 52)
         self.file_table.currentCellChanged.connect(self._select_file)
-        self.main_splitter.addWidget(self._panel("Excel 文件", self.file_table))
+        self.navigation_splitter.addWidget(self._panel("Excel 文件", self.file_table))
+        self.navigation_splitter.setSizes([500, 260])
+        self.main_splitter.addWidget(self.navigation_splitter)
 
         details = QWidget()
         details_layout = QVBoxLayout(details)
@@ -250,6 +259,7 @@ class MainWindow(QMainWindow):
 
         self.details_splitter = QSplitter(Qt.Orientation.Vertical)
         self.details_splitter.setChildrenCollapsible(False)
+        self.details_splitter.setHandleWidth(6)
 
         self.sheet_table = self._data_table(3, selectable=False)
         self.sheet_table.setHorizontalHeaderLabels(["工作表", "状态", "单元格变化"])
@@ -275,6 +285,7 @@ class MainWindow(QMainWindow):
 
         self.context_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.context_splitter.setChildrenCollapsible(False)
+        self.context_splitter.setHandleWidth(6)
         self.old_context_table = self._context_table()
         self.new_context_table = self._context_table()
         self.context_splitter.addWidget(self._panel("修改前上下文", self.old_context_table))
@@ -285,10 +296,9 @@ class MainWindow(QMainWindow):
         details_layout.addWidget(self.details_splitter, 1)
 
         self.main_splitter.addWidget(details)
-        self.main_splitter.setSizes([360, 300, 720])
+        self.main_splitter.setSizes([520, 860])
         self.main_splitter.setStretchFactor(0, 1)
-        self.main_splitter.setStretchFactor(1, 1)
-        self.main_splitter.setStretchFactor(2, 3)
+        self.main_splitter.setStretchFactor(1, 2)
         root_layout.addWidget(self.main_splitter, 1)
 
         status_bar = QWidget()
@@ -326,6 +336,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _data_table(column_count: int, *, selectable: bool = True) -> QTableWidget:
         table = QTableWidget(0, column_count)
+        table.setObjectName("dataTable")
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         mode = (
@@ -343,6 +354,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _context_table() -> QTableWidget:
         table = QTableWidget()
+        table.setObjectName("contextTable")
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         table.setAlternatingRowColors(True)
@@ -382,6 +394,7 @@ class MainWindow(QMainWindow):
     def _restore_splitter_state(self) -> None:
         for key, splitter in (
             ("layout/main_splitter", self.main_splitter),
+            ("layout/navigation_splitter", self.navigation_splitter),
             ("layout/details_splitter", self.details_splitter),
             ("layout/context_splitter", self.context_splitter),
         ):
@@ -391,6 +404,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._settings.setValue("layout/main_splitter", self.main_splitter.saveState())
+        self._settings.setValue("layout/navigation_splitter", self.navigation_splitter.saveState())
         self._settings.setValue("layout/details_splitter", self.details_splitter.saveState())
         self._settings.setValue("layout/context_splitter", self.context_splitter.saveState())
         super().closeEvent(event)
@@ -445,9 +459,11 @@ class MainWindow(QMainWindow):
         self,
         row: int,
         _column: int,
-        _previous_row: int,
+        previous_row: int,
         _previous_column: int,
     ) -> None:
+        if row == previous_row:
+            return
         if self._repository is None or row < 0 or row >= len(self._commits):
             return
         repository = self._repository
@@ -480,9 +496,11 @@ class MainWindow(QMainWindow):
         self,
         row: int,
         _column: int,
-        _previous_row: int,
+        previous_row: int,
         _previous_column: int,
     ) -> None:
+        if row == previous_row:
+            return
         if self._repository is None or row < 0 or row >= len(self._files):
             return
         repository = self._repository
@@ -636,6 +654,18 @@ class MainWindow(QMainWindow):
         table.setHorizontalHeaderLabels(
             [get_column_letter(context.start_column + index) for index in range(column_count)]
         )
+        header_background = QColor("#eef2f6")
+        header_foreground = QColor("#475569")
+        for column in range(column_count):
+            item = table.horizontalHeaderItem(column)
+            if item is not None:
+                item.setBackground(header_background)
+                item.setForeground(header_foreground)
+        for row in range(row_count):
+            item = table.verticalHeaderItem(row)
+            if item is not None:
+                item.setBackground(header_background)
+                item.setForeground(header_foreground)
         target_index = context_target_index(context, target_coordinate)
         for row, values in enumerate(context.values):
             for column, value in enumerate(values):
@@ -650,16 +680,18 @@ class MainWindow(QMainWindow):
                 table.setItem(row, column, item)
         if target_index is not None:
             target_row, target_column = target_index
-            header_background = QColor("#fef3c7")
-            header_foreground = QColor("#92400e")
+            target_header_background = QColor("#fef3c7")
+            target_header_foreground = QColor("#92400e")
             horizontal_header = table.horizontalHeaderItem(target_column)
             vertical_header = table.verticalHeaderItem(target_row)
             if horizontal_header is not None:
-                horizontal_header.setBackground(header_background)
-                horizontal_header.setForeground(header_foreground)
+                horizontal_header.setText(f"> {horizontal_header.text()}")
+                horizontal_header.setBackground(target_header_background)
+                horizontal_header.setForeground(target_header_foreground)
             if vertical_header is not None:
-                vertical_header.setBackground(header_background)
-                vertical_header.setForeground(header_foreground)
+                vertical_header.setText(f"> {vertical_header.text()}")
+                vertical_header.setBackground(target_header_background)
+                vertical_header.setForeground(target_header_foreground)
             target_item = table.item(target_row, target_column)
             if target_item is not None:
                 table.scrollToItem(target_item)
